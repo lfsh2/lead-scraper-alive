@@ -1,0 +1,6 @@
+node_modules
+.env
+*.csv
+output/*
+user-preferences.json
+business-profile.json

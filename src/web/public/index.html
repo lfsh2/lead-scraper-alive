@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f5f0" />
+    <meta
+      name="description"
+      content="AI-powered business lead generation dashboard"
+    />
+    <title>Business Leads AI Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Roboto+Flex:wght@300..700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/dashboard.css" />
+    <link rel="stylesheet" href="css/components.css" />
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <div class="header-left">
+          <button
+            class="hamburger-btn"
+            id="hamburgerBtn"
+            aria-label="Toggle menu"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="logo">
+            <div class="logo-icon">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"
+                />
+                <path
+                  d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"
+                />
+                <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+                <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+              </svg>
+            </div>
+            <h1>Business Leads AI</h1>
+            <span class="version">v2.0</span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button
+            class="theme-toggle"
+            id="themeToggle"
+            aria-label="Toggle theme"
+          >
+            <div class="toggle-thumb">
+              <svg
+                class="icon-moon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+              </svg>
+              <svg
+                class="icon-sun"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                style="display: none"
+              >
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2" />
+                <path d="M12 20v2" />
+                <path d="m4.93 4.93 1.41 1.41" />
+                <path d="m17.66 17.66 1.41 1.41" />
+                <path d="M2 12h2" />
+                <path d="M20 12h2" />
+                <path d="m6.34 17.66-1.41 1.41" />
+                <path d="m19.07 4.93-1.41 1.41" />
+              </svg>
+            </div>
+          </button>
+          <button
+            class="btn btn-primary btn-sm"
+            onclick="showModal('newCampaignModal')"
+            id="newCampaignBtn"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="16"
+              height="16"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span class="btn-text">Find Leads</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Sidebar Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Main Layout -->
+    <div class="main-content">
+      <!-- Sidebar Navigation -->
+      <nav class="sidebar" id="sidebar" aria-label="Main navigation">
+        <ul class="nav-menu">
+          <li class="nav-item active" data-section="leads">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            <span class="nav-label">Leads</span>
+            <span class="nav-badge" id="leadCount">0</span>
+          </li>
+          <li class="nav-item" id="findLeadsNav" onclick="showModal('newCampaignModal')">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span class="nav-label">Find New Leads</span>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- Content Area -->
+      <main class="content">
+        <!-- Leads Section (the only section) -->
+        <div class="section active" id="section-leads">
+          <div class="leads-header">
+            <h2 class="section-title">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              Leads
+            </h2>
+            <div class="leads-tools">
+              <input
+                type="search"
+                id="leadsSearch"
+                placeholder="Search by name, phone, address…"
+                aria-label="Search leads"
+              />
+              <button
+                class="btn btn-secondary btn-sm"
+                id="exportCsvBtn"
+                style="display: none"
+                onclick="dashboard.exportAllCsv()"
+                title="Download every unique lead as CSV"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  width="14"
+                  height="14"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Export CSV
+              </button>
+              <button
+                class="btn btn-secondary btn-sm"
+                id="exportVCardBtn"
+                style="display: none"
+                onclick="dashboard.exportAllVCards()"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  width="14"
+                  height="14"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                vCards
+              </button>
+              <button
+                class="btn btn-primary btn-sm"
+                onclick="showModal('newCampaignModal')"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  width="14"
+                  height="14"
+                >
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Find New Leads
+              </button>
+            </div>
+          </div>
+
+          <div id="registryStrip" style="margin: 0.5rem 0 1rem; font-size: 0.85rem; color: var(--text-muted)">
+            <span id="registryStripText"></span>
+            <button id="registryResetBtn" class="btn btn-secondary btn-sm" style="margin-left: 0.5rem; display: none" onclick="dashboard.resetRegistry()">Reset dedup index</button>
+          </div>
+
+          <div class="stats-grid" id="leadStatsGrid">
+            <div class="stat-card skeleton skeleton-card"></div>
+            <div class="stat-card skeleton skeleton-card"></div>
+            <div class="stat-card skeleton skeleton-card"></div>
+            <div class="stat-card skeleton skeleton-card"></div>
+          </div>
+
+          <div id="leadsTableContainer">
+            <div class="card" style="text-align: center; padding: 3rem">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                width="48"
+                height="48"
+                style="opacity: 0.3; margin-bottom: 1rem"
+              >
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+              </svg>
+              <p class="empty-title">Loading leads…</p>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Bottom Navigation (Mobile) -->
+    <nav class="bottom-nav" id="bottomNav" aria-label="Mobile navigation">
+      <ul class="bottom-nav-items">
+        <li class="bottom-nav-item active" data-section="leads">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+          Leads
+        </li>
+        <li class="bottom-nav-item" onclick="showModal('newCampaignModal')">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          Find Leads
+        </li>
+      </ul>
+    </nav>
+
+    <!-- Notifications Container -->
+    <div id="notifications"></div>
+
+    <!-- Find New Leads Modal -->
+    <div class="modal" id="newCampaignModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="20"
+              height="20"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            Find New Leads
+          </h3>
+          <button class="modal-close" onclick="hideModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="newCampaignForm" onsubmit="dashboard.createCampaign(event)">
+            <div class="form-group">
+              <label for="campaignName">Search Name</label>
+              <input
+                type="text"
+                id="campaignName"
+                name="name"
+                placeholder="e.g., Faith Coaches — US (Meta Ads)"
+                required
+              />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="campaignSource">Lead Source</label>
+                <select id="campaignSource" name="source" required>
+                  <option value="meta_ads" selected>Meta Ad Library (active marketers)</option>
+                  <option value="meta_pages">Facebook Pages search</option>
+                  <option value="meta_combined">Meta — Ads + Pages combined</option>
+                  <option value="google_maps">Google Maps</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="campaignCountry">Country</label>
+                <select id="campaignCountry" name="country">
+                  <option value="US" selected>United States</option>
+                  <option value="GB">United Kingdom</option>
+                  <option value="CA">Canada</option>
+                  <option value="AU">Australia</option>
+                  <option value="NZ">New Zealand</option>
+                  <option value="ZA">South Africa</option>
+                  <option value="ALL">All countries</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="campaignIndustry">Industry</label>
+                <select id="campaignIndustry" name="industry" required>
+                  <option value="professional" selected>Coaching / Professional Services</option>
+                  <option value="healthcare">Healthcare & Wellness</option>
+                  <option value="education">Education</option>
+                  <option value="restaurant">Restaurant & Food</option>
+                  <option value="retail">Retail & E-commerce</option>
+                  <option value="realestate">Real Estate</option>
+                  <option value="automotive">Automotive</option>
+                  <option value="custom">Custom / Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="campaignLocation">Region label</label>
+                <input
+                  type="text"
+                  id="campaignLocation"
+                  name="location"
+                  placeholder="e.g., US Nationwide"
+                  value="US Nationwide"
+                  required
+                />
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="campaignQuery">Search Query</label>
+              <input
+                type="text"
+                id="campaignQuery"
+                name="searchQuery"
+                placeholder="e.g., faith based life coach"
+                value="faith based life coach"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="campaignService">Your Service Description</label>
+              <input
+                type="text"
+                id="campaignService"
+                name="yourService"
+                placeholder="e.g., Marketing & systems for faith-based coaches"
+                value="Marketing & systems for faith-based coaches — aliveandfreeconsulting.com"
+                required
+              />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="campaignMaxResults">Max Results</label>
+                <input
+                  type="number"
+                  id="campaignMaxResults"
+                  name="maxResults"
+                  value="25"
+                  min="5"
+                  max="100"
+                />
+              </div>
+              <div class="form-group">
+                <label for="campaignStyle">Outreach Tone</label>
+                <select id="campaignStyle" name="contentStyle">
+                  <option value="conservative">Conservative</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="aggressive">Bold</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="campaignLanguage">Language</label>
+              <select id="campaignLanguage" name="language">
+                <option value="english" selected>English</option>
+                <option value="indonesian">Bahasa Indonesia</option>
+              </select>
+            </div>
+            <div class="form-group" style="padding-top: 0.25rem">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal">
+                <input type="checkbox" id="campaignSkipDuplicates" name="skipDuplicates" value="true" checked />
+                <span>Skip leads I've already pulled (recommended — only fetch new ones)</span>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                onclick="hideModal()"
+              >
+                Cancel
+              </button>
+              <button type="submit" class="btn btn-primary">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  width="16"
+                  height="16"
+                >
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                Find Leads
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Campaign Detail Modal -->
+    <div class="modal" id="campaignDetailModal">
+      <div class="modal-content" style="max-width: 700px">
+        <div class="modal-header">
+          <h3>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="20"
+              height="20"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+            Campaign Details
+          </h3>
+          <button class="modal-close" onclick="hideModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="campaignDetailContent">
+          <div class="loading">Loading campaign details...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lead Search Progress Modal -->
+    <div class="modal" id="campaignProgressModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="20"
+              height="20"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <span id="progressCampaignName">Searching for leads…</span>
+          </h3>
+          <button class="modal-close" onclick="hideModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="progress-info">
+            <span class="progress-status" id="progressStatus">Starting...</span>
+            <span class="progress-percent" id="progressPercent">0%</span>
+          </div>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+          </div>
+          <div class="progress-messages" id="progressMessages"></div>
+        </div>
+        <div class="modal-footer">
+          <button
+            class="btn btn-secondary"
+            id="progressCloseBtn"
+            onclick="hideModal()"
+            disabled
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Marketing Content Modal -->
+    <div class="modal" id="marketingModal">
+      <div class="modal-content" style="max-width: 700px">
+        <div class="modal-header">
+          <h3>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              width="20"
+              height="20"
+            >
+              <path
+                d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"
+              />
+              <circle cx="12" cy="13" r="3" />
+            </svg>
+            Marketing Content
+          </h3>
+          <button class="modal-close" onclick="hideModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="marketingContent">
+          <div class="loading">Loading content...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/api.js"></script>
+    <script src="js/components.js"></script>
+    <script src="js/dashboard.js"></script>
+  </body>
+</html>
