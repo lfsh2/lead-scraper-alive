@@ -75,6 +75,48 @@ class MetaScraper {
         return idx;
       });
 
+      // For each Library ID, find the ad-card DOM and pluck the l.php CTA url
+      // inside that card. This gives every lead its own destination URL —
+      // i.e. the real coach website the ad is driving traffic to.
+      const destByLibraryId = await page.evaluate(() => {
+        const out = {};
+        // Find every text node containing "Library ID: NNN"
+        const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+          acceptNode: (n) =>
+            /Library\s+ID:\s*\d+/i.test(n.nodeValue)
+              ? NodeFilter.FILTER_ACCEPT
+              : NodeFilter.FILTER_REJECT,
+        });
+        let tn;
+        while ((tn = tw.nextNode())) {
+          const m = tn.nodeValue.match(/Library\s+ID:\s*(\d+)/i);
+          if (!m) continue;
+          const libraryId = m[1];
+          if (out[libraryId]) continue;
+
+          // Walk up to the smallest ancestor that also contains "Sponsored"
+          let card = tn.parentElement;
+          for (let i = 0; i < 12 && card; i++) {
+            if (/Sponsored/i.test(card.textContent || "")) break;
+            card = card.parentElement;
+          }
+          if (!card) continue;
+
+          const cta = card.querySelector('a[href*="l.facebook.com/l.php"]');
+          if (cta) {
+            try {
+              const url = new URL(
+                cta.getAttribute("href"),
+                "https://www.facebook.com"
+              );
+              const dest = url.searchParams.get("u");
+              if (dest) out[libraryId] = dest;
+            } catch (_) {}
+          }
+        }
+        return out;
+      });
+
       // ── Text-based card splitter ────────────────────────────
       // The visual innerText of the Ad Library is a stream like:
       //    Inactive\nLibrary ID: 123\nMay 15, 2025 - Jun 20, 2025\n...
@@ -196,6 +238,7 @@ class MetaScraper {
             creative,
             platforms,
             status,
+            destinationUrl: destByLibraryId[libraryId] || "",
           });
         }
         return out;
@@ -213,6 +256,7 @@ class MetaScraper {
         website: a.pageUrl,
         referenceLink: `https://www.facebook.com/ads/library/?id=${a.libraryId}`,
         description: a.creative,
+        destinationUrl: a.destinationUrl || "",
         platforms: a.platforms,
         startedRunningOn: a.startedRunningOn,
         libraryId: a.libraryId,
