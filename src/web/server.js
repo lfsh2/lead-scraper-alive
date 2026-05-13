@@ -16,7 +16,7 @@ const { enrichLeads } = require('../contactEnricher');
 const leadsRegistry = new LeadsRegistry();
 
 const app = express();
-const PORT = process.env.WEB_PORT || 3000;
+const PORT = process.env.PORT || process.env.WEB_PORT || 3000;
 
 // Middleware
 app.use(express.json());
