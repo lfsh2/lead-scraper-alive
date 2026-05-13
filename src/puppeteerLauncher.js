@@ -1,11 +1,13 @@
 // Dual-mode launcher.
 //   Local dev / Mac / Linux desktop  → full `puppeteer` (auto-downloads Chrome)
-//   Production (Render, AWS Lambda)  → `puppeteer-core` + `@sparticuz/chromium`
+//   Production (Render, AWS Lambda, DigitalOcean App Platform)
+//                                   → `puppeteer-core` + `@sparticuz/chromium`
 //
 // Detection: any of these signals = production
 //   RENDER=true | AWS_LAMBDA_FUNCTION_NAME | USE_SPARTICUZ_CHROMIUM=true
+//   __dirname starts with /workspace  (DigitalOcean App Platform)
 //
-// On Render, ALSO set in env:
+// On hosted platforms, ALSO set in env:
 //   PUPPETEER_SKIP_DOWNLOAD=true   (so the install step doesn't try to fetch
 //                                   Chrome — @sparticuz/chromium ships its own)
 
@@ -14,7 +16,8 @@ function isServerlessHost() {
         process.env.RENDER === "true" ||
         process.env.RENDER === "1" ||
         !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
-        process.env.USE_SPARTICUZ_CHROMIUM === "true"
+        process.env.USE_SPARTICUZ_CHROMIUM === "true" ||
+        __dirname.startsWith("/workspace") // DigitalOcean App Platform
     );
 }
 
