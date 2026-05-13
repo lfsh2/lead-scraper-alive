@@ -26,8 +26,13 @@ class BusinessScraper {
       )}`;
       console.log(`Searching: ${searchUrl}`);
 
-      await page.goto(searchUrl, { waitUntil: "networkidle2", timeout: 60000 });
-      await this.delay(3000);
+      // Google Maps also rarely reaches networkidle on slow hosts —
+      // load the DOM then wait for the results feed before scrolling.
+      await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 90000 });
+      try {
+        await page.waitForSelector('[role="feed"], .Nv2PK', { timeout: 30000 });
+      } catch (_) {}
+      await this.delay(2500);
 
       // Scroll untuk load lebih banyak results
       await this.scrollResults(page, maxResults);

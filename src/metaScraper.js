@@ -38,9 +38,22 @@ class MetaScraper {
     console.log(`[Meta Ad Library] ${url}`);
 
     try {
-      await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-      await this.delay(3500);
+      // domcontentloaded is far more reliable than networkidle2 on Facebook —
+      // FB keeps long-polling sockets open which never let networkidle fire.
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
 
+      // Now wait for the ad cards themselves to appear (signaled by the
+      // "Library ID:" string in the page text). Give it up to 30s.
+      try {
+        await page.waitForFunction(
+          () => /Library\s+ID:\s*\d+/i.test(document.body.innerText || ""),
+          { timeout: 30000 }
+        );
+      } catch (_) {
+        console.log("[Meta Ad Library] No ad cards visible within 30s — page may have 0 results or is rate-limited.");
+      }
+
+      await this.delay(1500);
       await this.dismissCookieBanner(page);
 
       // Scroll until enough ad cards loaded or no growth
@@ -283,8 +296,8 @@ class MetaScraper {
     console.log(`[Meta Pages] ${url}`);
 
     try {
-      await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-      await this.delay(3000);
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
+      await this.delay(2500);
       await this.dismissCookieBanner(page);
       await this.scrollList(page, maxResults);
 
