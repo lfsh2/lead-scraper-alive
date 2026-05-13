@@ -1930,3 +1930,25 @@ textarea {
     display: none;
   }
 }
+
+/* ─── Score Filter Pills ────────────────────────────────── */
+.score-pill {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+.score-pill:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.score-pill.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}

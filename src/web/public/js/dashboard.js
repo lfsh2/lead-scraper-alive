@@ -114,6 +114,18 @@ class Dashboard {
         if (search) {
             search.addEventListener('input', e => this.filterLeads(e.target.value));
         }
+
+        const searchFilter = document.getElementById('leadsSearchFilter');
+        if (searchFilter) {
+            searchFilter.addEventListener('change', e => this.filterBySearch(e.target.value));
+        }
+
+        document.querySelectorAll('.score-pill').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.score-pill').forEach(b => b.classList.toggle('active', b === btn));
+                this.filterByMinScore(btn.dataset.min);
+            });
+        });
     }
 
     // ─── Section Navigation (kept for nav highlight) ───────
@@ -213,7 +225,8 @@ class Dashboard {
             this.filteredLeads = this.allLeads;
 
             this.renderLeadStats();
-            this.renderLeadsTable(this.filteredLeads);
+            this.populateSearchFilter();
+            this._applyFilters();
 
             const badge = document.getElementById('leadCount');
             if (badge) badge.textContent = api.formatNumber(this.allLeads.length);
@@ -233,20 +246,59 @@ class Dashboard {
         }
     }
 
+    // Filter state — combined search text + search-name + min score
+    _filterState = { query: '', searchId: '', minScore: 0 };
+
     filterLeads(query) {
-        const q = (query || '').trim().toLowerCase();
-        if (!q) {
-            this.filteredLeads = this.allLeads;
-        } else {
-            this.filteredLeads = this.allLeads.filter(l => {
-                const hay = [
-                    l.name, l.phone, l.address, l.website,
-                    l._source?.name
-                ].filter(Boolean).join(' ').toLowerCase();
-                return hay.includes(q);
-            });
-        }
+        this._filterState.query = (query || '').trim().toLowerCase();
+        this._applyFilters();
+    }
+
+    filterBySearch(searchId) {
+        this._filterState.searchId = searchId || '';
+        this._applyFilters();
+    }
+
+    filterByMinScore(minScore) {
+        this._filterState.minScore = Number(minScore) || 0;
+        this._applyFilters();
+    }
+
+    _applyFilters() {
+        const { query, searchId, minScore } = this._filterState;
+        this.filteredLeads = this.allLeads.filter(l => {
+            if (searchId && l._source?.id !== searchId) return false;
+            if (minScore > 0 && Number(l.intelligence?.score || 0) < minScore) return false;
+            if (query) {
+                const hay = [l.name, l.phone, l.address, l.website, l._source?.name]
+                    .filter(Boolean).join(' ').toLowerCase();
+                if (!hay.includes(query)) return false;
+            }
+            return true;
+        });
         this.renderLeadsTable(this.filteredLeads);
+        const strip = document.getElementById('leadCountStrip');
+        if (strip) {
+            strip.textContent = `${this.filteredLeads.length} of ${this.allLeads.length} shown`;
+        }
+    }
+
+    populateSearchFilter() {
+        const select = document.getElementById('leadsSearchFilter');
+        if (!select || !this.campaigns) return;
+        const current = select.value;
+        const opts = ['<option value="">All searches</option>']
+            .concat(this.campaigns.map(c => {
+                const count = this.allLeads.filter(l => l._source?.id === c.id).length;
+                const label = `${c.name} (${count})`;
+                return `<option value="${c.id}">${this._escapeHtml(label)}</option>`;
+            }));
+        select.innerHTML = opts.join('');
+        if (current && this.campaigns.some(c => c.id === current)) select.value = current;
+    }
+
+    _escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
 
     // ═══════════════════════════════════════════════════════
@@ -320,7 +372,7 @@ class Dashboard {
         this.leadsTable = new DataTable(container, {
             columns: [
                 { key: 'name', title: 'Business', type: 'text' },
-                { key: 'source', title: 'Channel', type: 'text' },
+                { key: 'email', title: 'Email', type: 'text' },
                 { key: 'phone', title: 'Phone', type: 'text' },
                 { key: 'website', title: 'Link', type: 'link' },
                 { key: 'platforms', title: 'Platforms', type: 'tags' },
@@ -351,6 +403,8 @@ class Dashboard {
         // Checkboxes are omitted from FormData when unchecked — set explicitly.
         const skipBox = document.getElementById('campaignSkipDuplicates');
         campaignData.skipDuplicates = skipBox && skipBox.checked ? 'true' : 'false';
+        const enrichBox = document.getElementById('campaignEnrichContacts');
+        campaignData.enrichContacts = enrichBox && enrichBox.checked ? 'true' : 'false';
 
         if (!campaignData.name || !campaignData.industry || !campaignData.location || !campaignData.searchQuery || !campaignData.yourService) {
             showNotification('Validation Error', 'Please fill in all required fields', 'warning');
@@ -469,8 +523,17 @@ class Dashboard {
             showNotification('Export', 'No leads to export yet', 'warning');
             return;
         }
-        window.open('/api/leads/export/csv', '_blank');
-        showNotification('Export', `Downloading CSV of all ${this.allLeads.length} leads…`, 'success');
+        // If a single search is selected, use its dedicated endpoint —
+        // otherwise export every unique lead across every run.
+        const selected = (this._filterState && this._filterState.searchId) || '';
+        if (selected) {
+            window.open(`/api/campaigns/${encodeURIComponent(selected)}/export/csv`, '_blank');
+            const c = (this.campaigns || []).find(x => x.id === selected);
+            showNotification('Export', `Downloading CSV for "${c ? c.name : selected}"…`, 'success');
+        } else {
+            window.open('/api/leads/export/csv', '_blank');
+            showNotification('Export', `Downloading CSV of all ${this.allLeads.length} leads…`, 'success');
+        }
     }
 
     // ─── Registry stats strip ───────────────────────────────

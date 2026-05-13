@@ -11,6 +11,7 @@ const MarketingAI = require('../marketingAI');
 const LeadIntelligence = require('../leadIntelligence');
 const CampaignBuilder = require('../campaign');
 const LeadsRegistry = require('../leadsRegistry');
+const { enrichLeads } = require('../contactEnricher');
 
 const leadsRegistry = new LeadsRegistry();
 
@@ -387,7 +388,8 @@ function toCsvCell(value) {
 function leadsToCsv(leads, campaignName = '') {
     const headers = [
         'campaign', 'name', 'source', 'score', 'priority', 'category',
-        'page_url', 'website', 'phone', 'address', 'rating',
+        'email', 'phone', 'page_url', 'landing_url', 'website',
+        'address', 'rating',
         'platforms', 'ad_status', 'started_running_on', 'library_id',
         'creative', 'recommendation', 'scraped_at'
     ];
@@ -401,9 +403,11 @@ function leadsToCsv(leads, campaignName = '') {
             toCsvCell(intel.score),
             toCsvCell(intel.priority),
             toCsvCell(intel.category),
-            toCsvCell(l.pageUrl || l.website),
-            toCsvCell(l.website),
+            toCsvCell(l.email),
             toCsvCell(l.phone),
+            toCsvCell(l.pageUrl || l.website),
+            toCsvCell(l.landingUrl),
+            toCsvCell(l.website),
             toCsvCell(l.address),
             toCsvCell(l.rating),
             toCsvCell(l.platforms),
@@ -506,6 +510,12 @@ app.post('/api/campaigns', async (req, res) => {
             // Default: skip duplicates. The form posts 'on'/'true' when checked, omits when unchecked.
             // To explicitly disable from the API, pass skipDuplicates: false (or 'false').
             skipDuplicates: !(req.body.skipDuplicates === false || req.body.skipDuplicates === 'false' || req.body.skipDuplicates === 'off'),
+            enrichContacts: (() => {
+                const v = req.body.enrichContacts;
+                if (v === true || v === 'true' || v === 'on') return true;
+                if (v === false || v === 'false' || v === 'off') return false;
+                return /^true$/i.test(process.env.ENRICH_CONTACTS_DEFAULT || '');
+            })(),
             status: 'starting',
             progress: 0,
             startedAt: new Date().toISOString()
@@ -541,6 +551,24 @@ app.get('/api/campaigns/:id/status', (req, res) => {
     }
     res.json(campaign);
 });
+
+function getExcludePatterns() {
+    const raw = process.env.EXCLUDE_PAGES || '';
+    return raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+function applyExcludeFilter(leads) {
+    const patterns = getExcludePatterns();
+    if (!patterns.length) return { kept: leads, removed: [] };
+    const removed = [];
+    const kept = leads.filter(lead => {
+        const hay = `${lead.name || ''} ${lead.website || ''} ${lead.pageUrl || ''}`.toLowerCase();
+        const hit = patterns.some(p => hay.includes(p));
+        if (hit) removed.push(lead);
+        return !hit;
+    });
+    return { kept, removed };
+}
 
 function sourceLabel(source) {
     return {
@@ -599,6 +627,14 @@ async function executeCampaignAsync(campaignId) {
             rawLeads = await scraper.scrapeGoogleMaps(campaign.searchQuery, campaign.maxResults);
         }
 
+        // Drop excluded pages (own brand, partners, etc.)
+        const excludeResult = applyExcludeFilter(rawLeads);
+        rawLeads = excludeResult.kept;
+        campaign.excludedCount = excludeResult.removed.length;
+        if (campaign.excludedCount > 0) {
+            console.log(`[Campaign ${campaignId}] Excluded ${campaign.excludedCount} leads matching EXCLUDE_PAGES`);
+        }
+
         // Dedupe against the global lead registry (skip leads we've seen before)
         let skippedDuplicates = 0;
         if (campaign.skipDuplicates !== false) {
@@ -623,6 +659,22 @@ async function executeCampaignAsync(campaignId) {
             progress: 40,
             message: `Found ${rawLeads.length} raw leads`
         });
+
+        // Optional Phase 1.5: Contact Enrichment
+        if (campaign.enrichContacts && rawLeads.length > 0) {
+            campaign.status = 'enriching';
+            broadcastSSE({
+                type: 'campaign_progress',
+                campaignId,
+                progress: 45,
+                message: `Enriching ${rawLeads.length} leads with contact info...`
+            });
+            try {
+                rawLeads = await enrichLeads(rawLeads, { concurrency: 4, maxUrlsPerLead: 2 });
+            } catch (e) {
+                console.warn('[Enricher] failed:', e.message);
+            }
+        }
 
         // Phase 2: Lead Intelligence
         campaign.status = 'analyzing';

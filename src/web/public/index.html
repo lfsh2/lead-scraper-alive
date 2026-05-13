@@ -199,6 +199,13 @@
                 placeholder="Search by name, phone, address…"
                 aria-label="Search leads"
               />
+              <select
+                id="leadsSearchFilter"
+                aria-label="Filter by search"
+                style="padding: 0.5rem 0.75rem; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; font-size: 0.85rem; max-width: 220px"
+              >
+                <option value="">All searches</option>
+              </select>
               <button
                 class="btn btn-secondary btn-sm"
                 id="exportCsvBtn"
@@ -264,6 +271,15 @@
                 Find New Leads
               </button>
             </div>
+          </div>
+
+          <div id="scoreFilterStrip" style="margin: 0.5rem 0; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; font-size: 0.85rem">
+            <span style="color: var(--text-muted)">Filter:</span>
+            <button class="score-pill active" data-min="0">All</button>
+            <button class="score-pill" data-min="65">Score ≥ 65 (good)</button>
+            <button class="score-pill" data-min="75">Score ≥ 75 (high)</button>
+            <button class="score-pill" data-min="85">Score ≥ 85 (top)</button>
+            <span style="margin-left: auto; color: var(--text-muted)" id="leadCountStrip"></span>
           </div>
 
           <div id="registryStrip" style="margin: 0.5rem 0 1rem; font-size: 0.85rem; color: var(--text-muted)">
@@ -479,6 +495,12 @@
               <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal">
                 <input type="checkbox" id="campaignSkipDuplicates" name="skipDuplicates" value="true" checked />
                 <span>Skip leads I've already pulled (recommended — only fetch new ones)</span>
+              </label>
+            </div>
+            <div class="form-group" style="padding-top: 0.25rem">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal">
+                <input type="checkbox" id="campaignEnrichContacts" name="enrichContacts" value="true" />
+                <span>Pull phone/email from each coach's website (slower, +3-5s per lead)</span>
               </label>
             </div>
             <div class="form-actions">
