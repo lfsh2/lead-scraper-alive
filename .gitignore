@@ -4,3 +4,8 @@ node_modules
 output/*
 user-preferences.json
 business-profile.json
+.cache/
+data/*.json
+debug-*.html
+debug-*.png
+debug-*.js

@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: lead-scraper-alive
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm run web
+    healthCheckPath: /api/health
+    envVars:
+      # Tell Puppeteer NOT to try downloading Chrome on install — we use
+      # @sparticuz/chromium at runtime instead.
+      - key: PUPPETEER_SKIP_DOWNLOAD
+        value: "true"
+      # Force the dual-mode launcher into the serverless path.
+      - key: USE_SPARTICUZ_CHROMIUM
+        value: "true"
+      # Force Render to pin a stable Node — newer Node may break native deps.
+      - key: NODE_VERSION
+        value: "20.18.0"
+      # Required: Anthropic API key + endpoint.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: "https://api.anthropic.com/v1/"
+      - key: OPENAI_MODEL
+        value: "claude-haiku-4-5"
+      # Behavior defaults.
+      - key: PRIMARY_INDUSTRY
+        value: "professional"
+      - key: OUTPUT_LANGUAGE
+        value: "english"
+      - key: EXCLUDE_PAGES
+        value: "alive & free,aliveandfreeconsulting,alive and free"
+      - key: ENRICH_CONTACTS_DEFAULT
+        value: "false"

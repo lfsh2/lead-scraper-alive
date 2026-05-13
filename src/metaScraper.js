@@ -1,4 +1,4 @@
-const puppeteer = require("puppeteer");
+const { launchBrowser } = require("./puppeteerLauncher");
 
 class MetaScraper {
   constructor() {
@@ -8,16 +8,10 @@ class MetaScraper {
   }
 
   async init() {
-    this.browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-blink-features=AutomationControlled",
-        "--disable-features=IsolateOrigins,site-per-process",
-        "--window-size=1366,900",
-      ],
-    });
+    this.browser = await launchBrowser([
+      "--disable-features=IsolateOrigins,site-per-process",
+      "--window-size=1366,900",
+    ]);
     console.log("[Meta] Browser initialized");
   }
 

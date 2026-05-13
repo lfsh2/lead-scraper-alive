@@ -1,4 +1,4 @@
-const puppeteer = require("puppeteer");
+const { launchBrowser } = require("./puppeteerLauncher");
 
 class BusinessScraper {
   constructor() {
@@ -8,10 +8,7 @@ class BusinessScraper {
   }
 
   async init() {
-    this.browser = await puppeteer.launch({
-      headless: true, // Set true untuk production
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
+    this.browser = await launchBrowser();
     console.log("Browser initialized");
   }
 
