@@ -11,9 +11,21 @@ const MarketingAI = require('../marketingAI');
 const LeadIntelligence = require('../leadIntelligence');
 const CampaignBuilder = require('../campaign');
 const LeadsRegistry = require('../leadsRegistry');
+const LeadsDb = require('../leadsDb');
 const { enrichLeads } = require('../contactEnricher');
 
 const leadsRegistry = new LeadsRegistry();
+const leadsDb = new LeadsDb();
+
+// One-time import of any pre-database campaigns sitting in output/.
+// Idempotent (unique dedup_key), so running it on every boot is safe.
+leadsDb.backfillFromOutput()
+    .then(r => {
+        if (r.added > 0 || r.updated > 0) {
+            console.log(`[LeadsDb] Backfilled ${r.campaigns} campaigns: ${r.added} new leads, ${r.updated} updated`);
+        }
+    })
+    .catch(err => console.warn('[LeadsDb] Backfill failed:', err.message));
 
 const app = express();
 const PORT = process.env.PORT || process.env.WEB_PORT || 3000;
@@ -471,6 +483,60 @@ app.get('/api/leads/export/csv', (req, res) => {
     }
 });
 
+// ─── Leads Database (SQLite) ────────────────────────────────
+// Query all saved leads across every campaign.
+// Filters: ?campaignId= &priority=HIGH &minScore=60 &source= &search= &hasContact=true &page= &limit=
+app.get('/api/db/leads', async (req, res) => {
+    try {
+        const result = await leadsDb.getLeads(req.query);
+        res.json(result);
+    } catch (error) {
+        console.error('DB leads query failed:', error);
+        res.status(500).json({ error: 'Failed to query leads database' });
+    }
+});
+
+// Database totals: lead count, contact coverage, priority breakdown
+app.get('/api/db/stats', async (req, res) => {
+    try {
+        res.json(await leadsDb.getStats());
+    } catch (error) {
+        console.error('DB stats failed:', error);
+        res.status(500).json({ error: 'Failed to load database stats' });
+    }
+});
+
+// Export the entire database (respecting the same filters) as CSV
+app.get('/api/db/leads/export/csv', async (req, res) => {
+    try {
+        const leads = await leadsDb.exportLeads(req.query);
+        // Pull the full original lead out of raw_json so the CSV matches
+        // the per-campaign export format.
+        const restored = leads.map(row => {
+            let lead = {};
+            try { lead = JSON.parse(row.raw_json || '{}'); } catch { /* ignore */ }
+            return { ...lead, email: row.email || lead.email, phone: row.phone || lead.phone, _campaign: row.campaign_name };
+        });
+        const csv = leadsToCsv(restored.map(l => ({ ...l, source: l.source || l._campaign })), 'DATABASE');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="leads_database.csv"');
+        res.send('﻿' + csv);
+    } catch (error) {
+        console.error('DB CSV export failed:', error);
+        res.status(500).json({ error: 'Failed to export leads database' });
+    }
+});
+
+// Manually re-import output/ folders into the database
+app.post('/api/db/backfill', async (req, res) => {
+    try {
+        res.json({ success: true, ...(await leadsDb.backfillFromOutput()) });
+    } catch (error) {
+        console.error('DB backfill failed:', error);
+        res.status(500).json({ error: 'Backfill failed' });
+    }
+});
+
 // Registry stats — how many unique leads tracked
 app.get('/api/leads/registry/stats', (req, res) => {
     res.json(leadsRegistry.stats());
@@ -752,6 +818,16 @@ async function executeCampaignAsync(campaignId) {
         // Register every newly-discovered lead so subsequent runs skip them
         const recordedCount = leadsRegistry.recordMany(scoredLeads, campaignId);
         campaign.recordedToRegistry = recordedCount;
+
+        // Persist campaign + every lead to the SQLite database
+        try {
+            await leadsDb.saveCampaign(campaignInfo);
+            const dbResult = await leadsDb.saveLeads(scoredLeads, campaignId, campaign.name);
+            campaign.savedToDb = dbResult;
+            console.log(`[LeadsDb] Campaign ${campaignId}: ${dbResult.added} new leads saved, ${dbResult.updated} updated`);
+        } catch (dbErr) {
+            console.warn('[LeadsDb] Save failed:', dbErr.message);
+        }
 
         // Complete campaign
         campaign.status = 'completed';

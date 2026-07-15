@@ -1,11 +1,13 @@
 node_modules
 .env
+.env.digitalocean
 *.csv
 output/*
 user-preferences.json
 business-profile.json
 .cache/
 data/*.json
+data/*.db
 debug-*.html
 debug-*.png
 debug-*.js

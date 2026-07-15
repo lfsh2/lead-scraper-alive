@@ -20,6 +20,11 @@ services:
       # Required: Anthropic API key + endpoint.
       - key: OPENAI_API_KEY
         sync: false
+      # Supabase Postgres — set the value in the Render dashboard. Use the
+      # "Session pooler" connection string (IPv4) from Supabase's Connect
+      # dialog; Render cannot reach the direct db.*.supabase.co host (IPv6).
+      - key: DATABASE_URL
+        sync: false
       - key: OPENAI_BASE_URL
         value: "https://api.anthropic.com/v1/"
       - key: OPENAI_MODEL

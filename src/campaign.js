@@ -5,6 +5,7 @@ const MarketingAutomation = require('./marketing');
 const MarketingAI = require('./marketingAI');
 const LeadIntelligence = require('./leadIntelligence');
 const FileUtils = require('./fileUtils');
+const LeadsDb = require('./leadsDb');
 const { getProfile, isConfigured } = require('./businessProfile');
 
 class CampaignBuilder {
@@ -303,7 +304,20 @@ class CampaignBuilder {
                 outputPath: outputDir
             };
             fs.writeFileSync(`${outputDir}/campaign_info.json`, JSON.stringify(campaignInfo, null, 2));
-            
+
+            // Persist campaign + every lead to the SQLite database
+            try {
+                const path = require('path');
+                const leadsDb = new LeadsDb();
+                const campaignDbId = path.basename(outputDir);
+                await leadsDb.saveCampaign({ ...campaignInfo, id: campaignDbId });
+                const dbResult = await leadsDb.saveLeads(scoredLeads, campaignDbId, this.campaign.name);
+                console.log(`💾 Database: ${dbResult.added} new leads saved, ${dbResult.updated} updated`);
+                await leadsDb.close();
+            } catch (dbErr) {
+                console.warn('⚠️  Database save failed:', dbErr.message);
+            }
+
             // Show success summary
             this.showCampaignSuccess(campaignInfo, outputDir);
             
