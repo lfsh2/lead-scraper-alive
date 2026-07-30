@@ -86,7 +86,62 @@ class LeadsDbSqlite {
     await this._run(`CREATE INDEX IF NOT EXISTS idx_leads_campaign ON leads(campaign_id)`);
     await this._run(`CREATE INDEX IF NOT EXISTS idx_leads_score ON leads(score)`);
     await this._run(`CREATE INDEX IF NOT EXISTS idx_leads_priority ON leads(priority)`);
+    // Persistent dedup registry (mirrors the Postgres backend). See the
+    // src/leadsRegistryDb.js facade. Local SQLite lives on disk; on hosted
+    // deploys DATABASE_URL is set, so the Postgres copy is the durable one.
+    await this._run(`CREATE TABLE IF NOT EXISTS seen_leads (
+      key TEXT PRIMARY KEY,
+      is_primary INTEGER DEFAULT 0,
+      name TEXT,
+      source TEXT,
+      campaign_id TEXT,
+      first_seen_at TEXT DEFAULT (datetime('now'))
+    )`);
     console.log(`[LeadsDb] Ready at ${this.filePath}`);
+  }
+
+  // ── Dedup registry (see src/leadsRegistryDb.js facade) ────────────────
+  async seenExistingKeys(keys) {
+    await this.ready;
+    if (!Array.isArray(keys) || keys.length === 0) return [];
+    const found = [];
+    const CHUNK = 400; // stay well under SQLite's 999-variable limit
+    for (let i = 0; i < keys.length; i += CHUNK) {
+      const slice = keys.slice(i, i + CHUNK);
+      const ph = slice.map(() => "?").join(",");
+      const rows = await this._all(
+        `SELECT key FROM seen_leads WHERE key IN (${ph})`,
+        slice
+      );
+      for (const r of rows) found.push(r.key);
+    }
+    return found;
+  }
+
+  async seenRecord(rows) {
+    await this.ready;
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    for (const r of rows) {
+      await this._run(
+        `INSERT OR IGNORE INTO seen_leads (key, is_primary, name, source, campaign_id)
+         VALUES (?,?,?,?,?)`,
+        [r.key, r.isPrimary ? 1 : 0, r.name || "", r.source || "", r.campaignId || ""]
+      );
+    }
+  }
+
+  async seenStats() {
+    await this.ready;
+    const indexed = await this._get(`SELECT COUNT(*) AS n FROM seen_leads`);
+    const uniq = await this._get(
+      `SELECT COUNT(*) AS n FROM seen_leads WHERE is_primary = 1`
+    );
+    return { uniqueLeads: uniq.n, indexedKeys: indexed.n };
+  }
+
+  async seenReset() {
+    await this.ready;
+    await this._run(`DELETE FROM seen_leads`);
   }
 
   async saveCampaign(info) {

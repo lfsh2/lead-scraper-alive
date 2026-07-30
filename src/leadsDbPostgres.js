@@ -81,7 +81,72 @@ class LeadsDbPostgres {
     await this.pool.query(
       `CREATE INDEX IF NOT EXISTS idx_leads_priority ON leads(priority)`
     );
+    // Persistent dedup registry — survives redeploys (unlike data/seen-leads.json
+    // on the ephemeral container disk). One row per dedup key; is_primary marks
+    // the lead's canonical key so we can count unique leads honestly.
+    await this.pool.query(`CREATE TABLE IF NOT EXISTS seen_leads (
+      key TEXT PRIMARY KEY,
+      is_primary BOOLEAN DEFAULT false,
+      name TEXT,
+      source TEXT,
+      campaign_id TEXT,
+      first_seen_at TIMESTAMPTZ DEFAULT now()
+    )`);
     console.log(`[LeadsDb] Postgres ready (${this._safeHost()})`);
+  }
+
+  // ── Dedup registry (see src/leadsRegistryDb.js facade) ────────────────
+  async seenExistingKeys(keys) {
+    await this.ready;
+    if (!Array.isArray(keys) || keys.length === 0) return [];
+    const res = await this.pool.query(
+      `SELECT key FROM seen_leads WHERE key = ANY($1)`,
+      [keys]
+    );
+    return res.rows.map((r) => r.key);
+  }
+
+  async seenRecord(rows) {
+    await this.ready;
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    const CHUNK = 500;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const slice = rows.slice(i, i + CHUNK);
+      const values = [];
+      const params = [];
+      slice.forEach((r, j) => {
+        const b = j * 5;
+        values.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5})`);
+        params.push(
+          r.key,
+          !!r.isPrimary,
+          r.name || "",
+          r.source || "",
+          r.campaignId || ""
+        );
+      });
+      await this.pool.query(
+        `INSERT INTO seen_leads (key, is_primary, name, source, campaign_id)
+         VALUES ${values.join(",")}
+         ON CONFLICT (key) DO NOTHING`,
+        params
+      );
+    }
+  }
+
+  async seenStats() {
+    await this.ready;
+    const r = await this.pool.query(
+      `SELECT COUNT(*)::int AS indexed,
+              COUNT(*) FILTER (WHERE is_primary)::int AS uniq
+       FROM seen_leads`
+    );
+    return { uniqueLeads: r.rows[0].uniq, indexedKeys: r.rows[0].indexed };
+  }
+
+  async seenReset() {
+    await this.ready;
+    await this.pool.query(`DELETE FROM seen_leads`);
   }
 
   _safeHost() {

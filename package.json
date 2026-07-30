@@ -13,6 +13,8 @@
         "web": "node src/web/server.js",
         "web:dev": "nodemon src/web/server.js",
         "test": "node test.js",
+        "apify:test": "node src/apifySmokeTest.js",
+        "daily": "node src/dailyRun.js",
         "help": "echo 'Available commands:\n  npm start          - Start web dashboard (production entry)\n  npm run setup     - Interactive setup wizard\n  npm run campaign  - CLI: create and run campaigns\n  npm run cli       - CLI mode (legacy)\n  npm run web:dev   - Web dashboard development mode'"
     },
     "keywords": [

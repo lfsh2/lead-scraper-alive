@@ -396,10 +396,18 @@
               <div class="form-group">
                 <label for="campaignSource">Lead Source</label>
                 <select id="campaignSource" name="source" required>
-                  <option value="meta_ads" selected>Meta Ad Library (active marketers)</option>
-                  <option value="meta_pages">Facebook Pages search</option>
-                  <option value="meta_combined">Meta — Ads + Pages combined</option>
-                  <option value="google_maps">Google Maps</option>
+                  <optgroup label="Apify — reliable, gets emails (recommended)">
+                    <option value="apify_ads" selected>Meta Ad Library (active marketers)</option>
+                    <option value="apify_leads">Leads Finder — verified emails</option>
+                    <option value="apify_maps">Google Maps</option>
+                    <option value="apify_instagram">Instagram</option>
+                  </optgroup>
+                  <optgroup label="Built-in scraper (legacy, no proxies)">
+                    <option value="meta_ads">Meta Ad Library (legacy)</option>
+                    <option value="meta_pages">Facebook Pages search</option>
+                    <option value="meta_combined">Meta — Ads + Pages combined</option>
+                    <option value="google_maps">Google Maps (legacy)</option>
+                  </optgroup>
                 </select>
               </div>
               <div class="form-group">

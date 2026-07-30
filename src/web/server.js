@@ -11,11 +11,16 @@ const MarketingAI = require('../marketingAI');
 const LeadIntelligence = require('../leadIntelligence');
 const CampaignBuilder = require('../campaign');
 const LeadsRegistry = require('../leadsRegistry');
+const LeadsRegistryDb = require('../leadsRegistryDb');
 const LeadsDb = require('../leadsDb');
 const { enrichLeads } = require('../contactEnricher');
+const { apifyEnrichLeads } = require('../sources/apifyEnrich');
+const apifySources = require('../sources');
 
-const leadsRegistry = new LeadsRegistry();
 const leadsDb = new LeadsDb();
+// Database-backed dedup registry (survives redeploys); falls back to the
+// legacy file registry if the DB is unavailable.
+const leadsRegistry = new LeadsRegistryDb(leadsDb, new LeadsRegistry());
 
 // One-time import of any pre-database campaigns sitting in output/.
 // Idempotent (unique dedup_key), so running it on every boot is safe.
@@ -538,14 +543,14 @@ app.post('/api/db/backfill', async (req, res) => {
 });
 
 // Registry stats — how many unique leads tracked
-app.get('/api/leads/registry/stats', (req, res) => {
-    res.json(leadsRegistry.stats());
+app.get('/api/leads/registry/stats', async (req, res) => {
+    res.json(await leadsRegistry.stats());
 });
 
 // Registry reset (lets the user re-pull leads from scratch if needed)
-app.post('/api/leads/registry/reset', (req, res) => {
-    leadsRegistry.reset();
-    res.json({ success: true, ...leadsRegistry.stats() });
+app.post('/api/leads/registry/reset', async (req, res) => {
+    await leadsRegistry.reset();
+    res.json({ success: true, ...(await leadsRegistry.stats()) });
 });
 
 // Create new campaign endpoint
@@ -641,8 +646,21 @@ function sourceLabel(source) {
         meta_ads: 'Meta Ad Library',
         meta_pages: 'Facebook Pages',
         meta_combined: 'Meta (Ads + Pages)',
-        google_maps: 'Google Maps'
+        google_maps: 'Google Maps',
+        ...apifySources.labels()
     }[source] || source;
+}
+
+// Decide which enrichment engine to use for a campaign.
+//   ENRICH_PROVIDER=apify  -> always Apify (falls back to HTTP if no token)
+//   ENRICH_PROVIDER=http   -> always the built-in cheerio enricher
+//   ENRICH_PROVIDER=auto   -> Apify for FB/IG sources when a token is present
+function chooseEnrichProvider(source) {
+    const pref = (process.env.ENRICH_PROVIDER || 'auto').toLowerCase();
+    if (pref === 'http') return 'http';
+    if (pref === 'apify') return apifySources.isConfigured() ? 'apify' : 'http';
+    const apifyFriendly = apifySources.isApifySource(source) || /meta|instagram/i.test(source);
+    return apifyFriendly && apifySources.isConfigured() ? 'apify' : 'http';
 }
 
 // Async campaign execution function
@@ -668,7 +686,19 @@ async function executeCampaignAsync(campaignId) {
 
         // Phase 1: Lead Discovery — routed by source
         let rawLeads = [];
-        if (source === 'meta_ads') {
+        if (apifySources.isApifySource(source)) {
+            if (!apifySources.isConfigured()) {
+                throw new Error('APIFY_TOKEN is not set — add it to your environment to use Apify sources.');
+            }
+            const src = apifySources.getSource(source);
+            rawLeads = await src.scrape({
+                query: campaign.searchQuery,
+                maxResults: campaign.maxResults,
+                country: campaign.country || 'US',
+                location: campaign.location,
+                industry: campaign.industry
+            });
+        } else if (source === 'meta_ads') {
             scraper = new MetaScraper();
             rawLeads = await scraper.scrapeAdLibrary(campaign.searchQuery, campaign.maxResults, campaign.country || 'US');
         } else if (source === 'meta_pages') {
@@ -704,7 +734,7 @@ async function executeCampaignAsync(campaignId) {
         // Dedupe against the global lead registry (skip leads we've seen before)
         let skippedDuplicates = 0;
         if (campaign.skipDuplicates !== false) {
-            const filtered = leadsRegistry.filterNew(rawLeads);
+            const filtered = await leadsRegistry.filterNew(rawLeads);
             skippedDuplicates = filtered.skipped.length;
             rawLeads = filtered.fresh;
             if (skippedDuplicates > 0) {
@@ -735,10 +765,15 @@ async function executeCampaignAsync(campaignId) {
                 progress: 45,
                 message: `Enriching ${rawLeads.length} leads with contact info...`
             });
+            const provider = chooseEnrichProvider(source);
             try {
-                rawLeads = await enrichLeads(rawLeads, { concurrency: 4, maxUrlsPerLead: 2 });
+                if (provider === 'apify') {
+                    rawLeads = await apifyEnrichLeads(rawLeads, { deepEnrich: true });
+                } else {
+                    rawLeads = await enrichLeads(rawLeads, { concurrency: 4, maxUrlsPerLead: 2 });
+                }
             } catch (e) {
-                console.warn('[Enricher] failed:', e.message);
+                console.warn(`[Enricher:${provider}] failed:`, e.message);
             }
         }
 
@@ -816,7 +851,7 @@ async function executeCampaignAsync(campaignId) {
         fs.writeFileSync(`${outputDir}/leads_with_intelligence.json`, JSON.stringify(scoredLeads, null, 2));
 
         // Register every newly-discovered lead so subsequent runs skip them
-        const recordedCount = leadsRegistry.recordMany(scoredLeads, campaignId);
+        const recordedCount = await leadsRegistry.recordMany(scoredLeads, campaignId);
         campaign.recordedToRegistry = recordedCount;
 
         // Persist campaign + every lead to the SQLite database

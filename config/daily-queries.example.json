@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy to config/daily-queries.json and edit. Each entry is one search. The runner fans out across all of them, dedupes against the registry, enriches for emails, scores, and saves — stopping at DAILY_LEAD_CAP. Scrape BROAD (all coaches) and let the faithSignal scoring surface the faith niche. source is one of: apify_ads, apify_leads, apify_maps, apify_instagram.",
+  "queries": [
+    { "source": "apify_ads", "query": "christian life coach", "country": "US", "industry": "professional", "maxResults": 120, "enrich": true },
+    { "source": "apify_ads", "query": "faith based coaching", "country": "US", "industry": "professional", "maxResults": 120, "enrich": true },
+    { "source": "apify_ads", "query": "life coach", "country": "US", "industry": "professional", "maxResults": 150, "enrich": true },
+    { "source": "apify_ads", "query": "business coach", "country": "US", "industry": "professional", "maxResults": 150, "enrich": true },
+    { "source": "apify_ads", "query": "mindset coach", "country": "US", "industry": "professional", "maxResults": 120, "enrich": true },
+    { "source": "apify_instagram", "query": "christian life coach", "industry": "professional", "maxResults": 100, "enrich": true },
+    { "source": "apify_instagram", "query": "faith coach", "industry": "professional", "maxResults": 100, "enrich": true },
+    { "source": "apify_leads", "query": "life coach", "country": "US", "location": "United States", "industry": "professional", "maxResults": 200, "enrich": false },
+    { "source": "apify_maps", "query": "christian life coach", "country": "US", "industry": "professional", "maxResults": 120, "enrich": true }
+  ]
+}
