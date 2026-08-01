@@ -16,6 +16,8 @@ const LeadsDb = require('../leadsDb');
 const { enrichLeads } = require('../contactEnricher');
 const { apifyEnrichLeads } = require('../sources/apifyEnrich');
 const apifySources = require('../sources');
+const mailer = require('../mailer');
+const { startProcessor } = require('../outreachQueue');
 
 const leadsDb = new LeadsDb();
 // Database-backed dedup registry (survives redeploys); falls back to the
@@ -31,6 +33,9 @@ leadsDb.backfillFromOutput()
         }
     })
     .catch(err => console.warn('[LeadsDb] Backfill failed:', err.message));
+
+// Start the background outreach send queue (no-op in manual mode).
+startProcessor(leadsDb, (data) => broadcastSSE(data));
 
 const app = express();
 const PORT = process.env.PORT || process.env.WEB_PORT || 3000;
@@ -553,6 +558,178 @@ app.post('/api/leads/registry/reset', async (req, res) => {
     res.json({ success: true, ...(await leadsRegistry.stats()) });
 });
 
+// ─── Outreach / Email Marketing ─────────────────────────────
+// Whether real SMTP sending is available, or the UI should fall back to mailto.
+app.get('/api/outreach/mode', (req, res) => {
+    res.json({
+        provider: mailer.providerName(),          // 'resend' | 'smtp' | 'manual'
+        smtp: mailer.isSmtpConfigured(),
+        from: mailer.fromAddress() || null
+    });
+});
+
+// dedup_keys of leads already emailed — so the UI can badge them.
+app.get('/api/outreach/sent', async (req, res) => {
+    try {
+        res.json({ keys: await leadsDb.getSentKeys() });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load outreach status' });
+    }
+});
+
+// Generate a personalized email draft for each selected lead.
+app.post('/api/outreach/generate', async (req, res) => {
+    try {
+        const keys = Array.isArray(req.body.keys) ? req.body.keys.slice(0, 100) : [];
+        if (!keys.length) return res.status(400).json({ error: 'No leads selected' });
+        const industry = req.body.industry || process.env.PRIMARY_INDUSTRY || 'professional';
+        const yourService = req.body.yourService ||
+            'Marketing & systems for faith-based coaches — aliveandfreeconsulting.com';
+        const style = req.body.style || 'balanced';
+        const language = req.body.language || 'english';
+
+        const rows = await leadsDb.getLeadsByKeys(keys);
+        const marketingAI = new MarketingAI();
+        const results = [];
+        const toStore = [];
+        for (const row of rows) {
+            let lead = {};
+            try { lead = JSON.parse(row.raw_json || '{}'); } catch { /* ignore */ }
+            lead.name = row.name || lead.name;
+            lead.email = row.email || lead.email;
+            let subject = '', body = '', error = '';
+            try {
+                const content = await marketingAI.generateIndustrySpecificContent(
+                    lead, industry, yourService, style, language
+                );
+                if (content) {
+                    subject = content.subject || content.email_subject || content.emailSubject ||
+                        `A quick idea for ${lead.name || 'you'}`;
+                    body = content.email || content.email_body || content.emailBody || content.message || '';
+                }
+                if (!body) error = 'No content generated';
+            } catch (e) {
+                error = e.message;
+            }
+            results.push({ key: row.dedup_key, name: row.name, email: row.email, subject, body, error });
+            toStore.push({
+                key: row.dedup_key, to: row.email, subject, body,
+                status: 'draft', error, generatedAt: new Date().toISOString()
+            });
+        }
+        try { await leadsDb.recordOutreach(toStore); } catch (e) { /* non-fatal */ }
+        res.json({ results });
+    } catch (error) {
+        console.error('Outreach generate failed:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate drafts' });
+    }
+});
+
+// Send the given messages. SMTP if configured, else mode:'manual' (client mailto).
+app.post('/api/outreach/send', async (req, res) => {
+    try {
+        const messages = Array.isArray(req.body.messages) ? req.body.messages.slice(0, 5000) : [];
+        if (!messages.length) return res.status(400).json({ error: 'No messages' });
+
+        // No server-side provider — client opens mailto: drafts instead.
+        if (mailer.providerName() === 'manual') {
+            return res.json({ mode: 'manual', messages });
+        }
+
+        // Enqueue for the background worker (handles large volume + rate limiting).
+        const rows = messages
+            .filter(m => m.to)
+            .map(m => ({ key: m.key, to: m.to, subject: m.subject, body: m.body, provider: mailer.providerName() }));
+        await leadsDb.enqueueOutreach(rows);
+        broadcastSSE({ type: 'outreach_queued', queued: rows.length });
+        res.json({ mode: 'queued', queued: rows.length, provider: mailer.providerName() });
+    } catch (error) {
+        console.error('Outreach send failed:', error);
+        res.status(500).json({ error: error.message || 'Failed to send' });
+    }
+});
+
+// Activity log — paginated; filter with ?status=sent|failed|queued|delivered|opened
+app.get('/api/outreach/log', async (req, res) => {
+    try {
+        res.json(await leadsDb.getOutreachLog(req.query));
+    } catch (e) {
+        console.error('Outreach log failed:', e);
+        res.status(500).json({ error: 'Failed to load outreach log' });
+    }
+});
+
+// Status counts for the stats strip.
+app.get('/api/outreach/stats', async (req, res) => {
+    try {
+        res.json(await leadsDb.getOutreachStats());
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to load outreach stats' });
+    }
+});
+
+// Resend a single message using its stored subject/body.
+app.post('/api/outreach/resend', async (req, res) => {
+    try {
+        const key = req.body.key;
+        if (!key) return res.status(400).json({ error: 'No key' });
+        const row = await leadsDb.getOutreachByKey(key);
+        if (!row || !row.to_email) return res.status(404).json({ error: 'No stored email for this lead' });
+        if (mailer.providerName() === 'manual') {
+            return res.json({ mode: 'manual', message: { key, to: row.to_email, subject: row.subject, body: row.body } });
+        }
+        await leadsDb.enqueueOutreach([{
+            key, to: row.to_email, subject: row.subject, body: row.body, provider: mailer.providerName()
+        }]);
+        broadcastSSE({ type: 'outreach_queued', queued: 1 });
+        res.json({ mode: 'queued', queued: 1 });
+    } catch (e) {
+        console.error('Outreach resend failed:', e);
+        res.status(500).json({ error: e.message || 'Resend failed' });
+    }
+});
+
+// Resend delivery webhook — updates delivered/opened/bounced by provider id.
+// Point your Resend dashboard's Webhook at POST /api/outreach/webhook.
+app.post('/api/outreach/webhook', async (req, res) => {
+    try {
+        const evt = req.body || {};
+        const id = evt.data && (evt.data.email_id || evt.data.id);
+        const map = {
+            'email.delivered': 'delivered',
+            'email.opened': 'opened',
+            'email.bounced': 'bounced',
+            'email.complained': 'complained'
+        };
+        const status = map[evt.type];
+        if (id && status) {
+            const row = await leadsDb.getOutreachByProviderId(id);
+            if (row) {
+                await leadsDb.updateOutreachStatus(row.dedup_key, { status });
+                broadcastSSE({ type: 'outreach_status', key: row.dedup_key, status });
+            }
+        }
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(200).json({ ok: false }); // don't trigger webhook retries on our errors
+    }
+});
+
+// Mark messages as sent — used after the client opens mailto drafts manually.
+app.post('/api/outreach/mark', async (req, res) => {
+    try {
+        const items = Array.isArray(req.body.items) ? req.body.items : [];
+        const toStore = items.map(m => ({
+            key: m.key, to: m.to, subject: m.subject, body: m.body,
+            status: m.status || 'sent', sentAt: new Date().toISOString()
+        }));
+        await leadsDb.recordOutreach(toStore);
+        res.json({ success: true, marked: toStore.length });
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to mark outreach' });
+    }
+});
+
 // Create new campaign endpoint
 app.post('/api/campaigns', async (req, res) => {
     try {
@@ -770,7 +947,7 @@ async function executeCampaignAsync(campaignId) {
                 if (provider === 'apify') {
                     rawLeads = await apifyEnrichLeads(rawLeads, { deepEnrich: true });
                 } else {
-                    rawLeads = await enrichLeads(rawLeads, { concurrency: 4, maxUrlsPerLead: 2 });
+                    rawLeads = await enrichLeads(rawLeads, { concurrency: 4, maxUrlsPerLead: 4 });
                 }
             } catch (e) {
                 console.warn(`[Enricher:${provider}] failed:`, e.message);

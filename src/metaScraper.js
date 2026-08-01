@@ -15,19 +15,92 @@ class MetaScraper {
     console.log("[Meta] Browser initialized");
   }
 
+  _uaPool() {
+    return [
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+    ];
+  }
+
   async newPage() {
     const page = await this.browser.newPage();
-    await page.setUserAgent(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    );
+    // Proxy auth (when META_PROXY needs credentials).
+    if (process.env.META_PROXY_USER) {
+      try {
+        await page.authenticate({
+          username: process.env.META_PROXY_USER,
+          password: process.env.META_PROXY_PASS || "",
+        });
+      } catch (_) {}
+    }
+    // Rotate the user-agent so repeated runs don't share one fingerprint.
+    const pool = this._uaPool();
+    this._pageCount = (this._pageCount || 0) + 1;
+    await page.setUserAgent(pool[this._pageCount % pool.length]);
     await page.setViewport({ width: 1366, height: 900 });
     await page.setExtraHTTPHeaders({ "Accept-Language": "en-US,en;q=0.9" });
     return page;
   }
 
+  // Tell "Facebook blocked us" apart from "this query has 0 results".
+  async detectBlock(page) {
+    try {
+      const u = page.url() || "";
+      if (/\/login|\/checkpoint|login\.php|\/recover/i.test(u)) return true;
+      const t = (
+        await page.evaluate(() => (document.body && document.body.innerText) || "")
+      )
+        .slice(0, 4000)
+        .toLowerCase();
+      if (/library\s+id:\s*\d+/i.test(t)) return false; // ads present → not blocked
+      return /log in to continue|you must log in|log into facebook|create new account|see more of .* on facebook/i.test(t);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async restart() {
+    try { if (this.browser) await this.browser.close(); } catch (_) {}
+    this.browser = null;
+    await this.init();
+  }
+
   // ─── Meta Ad Library ────────────────────────────────────────
   // Public, no auth. Best source for active marketers (coaches running ads).
+  // Retries on block/rate-limit, then surfaces a clear error instead of the
+  // old silent "0 leads" that looked like success.
   async scrapeAdLibrary(searchQuery, maxResults = 50, country = "US") {
+    const maxAttempts = parseInt(process.env.MAX_RETRIES || "", 10) || 3;
+    let blocked = false;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this._scrapeAdLibraryOnce(searchQuery, maxResults, country);
+      } catch (err) {
+        if (err && err.blocked) {
+          blocked = true;
+          const backoff = 3000 * attempt;
+          console.warn(
+            `[Meta Ad Library] Blocked/rate-limited (attempt ${attempt}/${maxAttempts}). Backing off ${backoff}ms…`
+          );
+          await this.delay(backoff);
+          try { await this.restart(); } catch (_) {} // shed the flagged session
+          continue;
+        }
+        throw err;
+      }
+    }
+    if (blocked) {
+      throw new Error(
+        `Facebook is blocking/rate-limiting this run (no ad data after ${maxAttempts} attempts). ` +
+          `Wait and retry, run from a residential IP, or set META_PROXY to route through a proxy.`
+      );
+    }
+    return [];
+  }
+
+  async _scrapeAdLibraryOnce(searchQuery, maxResults = 50, country = "US") {
     if (!this.browser) await this.init();
     const page = await this.newPage();
 
@@ -51,6 +124,13 @@ class MetaScraper {
         );
       } catch (_) {
         console.log("[Meta Ad Library] No ad cards visible within 30s — page may have 0 results or is rate-limited.");
+      }
+
+      // If the page shows a login/checkpoint wall, that's a block — retry.
+      if (await this.detectBlock(page)) {
+        const e = new Error("Facebook login/checkpoint wall detected");
+        e.blocked = true;
+        throw e;
       }
 
       await this.delay(1500);
@@ -255,12 +335,28 @@ class MetaScraper {
 
       console.log(`[Meta Ad Library] Extracted ${ads.length} unique pages`);
 
+      // Empty result with no explicit "no ads match" message = soft rate-limit,
+      // not a genuinely empty query. Throw so the retry wrapper tries again.
+      if (ads.length === 0) {
+        const bodyText = (
+          await page.evaluate(() => (document.body && document.body.innerText) || "")
+        ).toLowerCase();
+        const genuinelyEmpty = /no ads?\s+(match|to show|found)|0\s+results|no results|couldn.?t find|try (a )?different|see all results/i.test(bodyText);
+        if (!genuinelyEmpty) {
+          await page.close();
+          const e = new Error("Empty ad-library page — likely soft rate-limit");
+          e.blocked = true;
+          throw e;
+        }
+      }
+
       const normalized = ads.slice(0, maxResults).map((a) => ({
         name: a.name,
         address: "",
         phone: "",
         rating: "",
         website: a.pageUrl,
+        pageUrl: a.pageUrl,
         referenceLink: `https://www.facebook.com/ads/library/?id=${a.libraryId}`,
         description: a.creative,
         destinationUrl: a.destinationUrl || "",
@@ -276,10 +372,11 @@ class MetaScraper {
       await page.close();
       return normalized;
     } catch (err) {
-      console.error("[Meta Ad Library] Error:", err.message);
       try {
         await page.close();
       } catch (_) {}
+      if (err && err.blocked) throw err; // let the retry wrapper handle blocks
+      console.error("[Meta Ad Library] Error:", err.message);
       return [];
     }
   }

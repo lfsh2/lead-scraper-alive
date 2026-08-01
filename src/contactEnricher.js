@@ -62,6 +62,58 @@ async function fetchPage(url, timeoutMs = 8000) {
     }
 }
 
+// Decode Cloudflare's data-cfemail obfuscation (first byte is XOR key).
+function decodeCfEmail(hex) {
+    try {
+        const r = parseInt(hex.substr(0, 2), 16);
+        let out = "";
+        for (let i = 2; i < hex.length; i += 2) {
+            out += String.fromCharCode(parseInt(hex.substr(i, 2), 16) ^ r);
+        }
+        return out;
+    } catch (_) {
+        return "";
+    }
+}
+
+// Pull emails written to dodge scrapers: "name [at] domain [dot] com", etc.
+const OBFUSCATED_RE = /([a-z0-9._%+-]+)\s*(?:\[at\]|\(at\)|\{at\}|\s+at\s+|@)\s*([a-z0-9.-]+?)\s*(?:\[dot\]|\(dot\)|\{dot\}|\s+dot\s+|\.)\s*([a-z]{2,})/gi;
+function extractObfuscatedEmails(text) {
+    const out = [];
+    const re = new RegExp(OBFUSCATED_RE);
+    let m;
+    while ((m = re.exec(text))) {
+        const e = `${m[1]}@${m[2]}.${m[3]}`.toLowerCase();
+        if (!SKIP_EMAIL.test(e)) out.push(e);
+    }
+    return out;
+}
+
+// Best-effort: read a public Facebook page for the advertiser's real website
+// and/or a listed email. Often behind a login wall — returns {} in that case.
+async function resolveFacebookPage(fbUrl) {
+    const html = await fetchPage(fbUrl, 9000);
+    if (!html) return {};
+    const out = {};
+    // Facebook wraps outbound links through l.facebook.com/l.php?u=<encoded>
+    const lphp = html.match(/l\.facebook\.com\\?\/l\.php\?u=([^&"'\\ ]+)/i);
+    if (lphp) {
+        try {
+            const u = decodeURIComponent(lphp[1]);
+            if (!SKIP_HOST.test(new URL(u).hostname)) out.website = u;
+        } catch (_) {}
+    }
+    if (!out.website) {
+        const w = html.match(/"website":"(https?:\\?\/\\?\/[^"]+)"/i);
+        if (w) out.website = w[1].replace(/\\\//g, "/");
+    }
+    const em = (html.match(EMAIL_RE) || []).find(
+        (e) => !SKIP_EMAIL.test(e) && !/facebook|fbcdn|\.png|\.jpg/i.test(e)
+    );
+    if (em) out.email = em;
+    return out;
+}
+
 function extractContactsFromHtml(html) {
     if (!html) return { phones: [], emails: [] };
 
@@ -111,13 +163,20 @@ function extractContactsFromHtml(html) {
         if (p) phones.add(p);
     });
 
-    // 3. Regex fallback over visible body text
+    // 2b. Cloudflare-obfuscated emails (data-cfemail attributes)
+    $("[data-cfemail]").each((_, el) => {
+        const e = decodeCfEmail($(el).attr("data-cfemail") || "");
+        if (e && !SKIP_EMAIL.test(e)) emails.add(e);
+    });
+
+    // 3. Regex fallback over visible body text (incl. [at]/[dot] obfuscation)
     $("script, style, noscript, svg").remove();
     const text = $("body").text().slice(0, 250000);
     if (emails.size === 0) {
         for (const m of text.match(EMAIL_RE) || []) {
             if (!SKIP_EMAIL.test(m)) emails.add(m);
         }
+        for (const e of extractObfuscatedEmails(text)) emails.add(e);
     }
     if (phones.size === 0) {
         for (const m of text.match(PHONE_RE) || []) {
@@ -141,6 +200,10 @@ function domainFallbacks(url) {
             origin + "/contact",
             origin + "/contact-us",
             origin + "/about",
+            origin + "/about-us",
+            origin + "/connect",
+            origin + "/work-with-me",
+            origin + "/get-in-touch",
         ];
     } catch (_) {
         return [];
@@ -153,6 +216,20 @@ async function enrichLead(lead, { maxUrlsPerLead = 4, perPageTimeoutMs = 8000 } 
     if (lead.destinationUrl && !SKIP_HOST.test(lead.destinationUrl)) seedUrls.push(lead.destinationUrl);
     extractUrls(lead.description || lead.creative || "").forEach(u => seedUrls.push(u));
     if (lead.website && !SKIP_HOST.test(lead.website)) seedUrls.push(lead.website);
+
+    // Meta leads often only carry a Facebook page URL (which we skip above).
+    // Try to resolve the advertiser's real website / email from that page.
+    let fbEmail = "";
+    if (!seedUrls.some(u => !SKIP_HOST.test(u))) {
+        const fb = lead.pageUrl || lead.website;
+        if (fb && /facebook\.com/i.test(fb)) {
+            try {
+                const r = await resolveFacebookPage(fb);
+                if (r.website) seedUrls.push(r.website);
+                if (r.email) fbEmail = r.email;
+            } catch (_) {}
+        }
+    }
 
     // Step 2: build the visit list — primary URLs PLUS domain fallbacks
     const seen = new Set();
@@ -169,7 +246,11 @@ async function enrichLead(lead, { maxUrlsPerLead = 4, perPageTimeoutMs = 8000 } 
         for (const fb of domainFallbacks(u)) push(fb);
     }
 
-    if (visitOrder.length === 0) return { ...lead };
+    if (visitOrder.length === 0) {
+        const out = { ...lead };
+        if (fbEmail && !lead.email) { out.email = fbEmail; out.enrichedEmails = [fbEmail]; }
+        return out;
+    }
 
     const phones = new Set();
     const emails = new Set();
@@ -187,6 +268,8 @@ async function enrichLead(lead, { maxUrlsPerLead = 4, perPageTimeoutMs = 8000 } 
         contacts.emails.forEach((e) => emails.add(e));
         if (phones.size && emails.size) break; // got both, stop
     }
+
+    if (fbEmail) emails.add(fbEmail);
 
     const enriched = { ...lead };
     if (phones.size && !lead.phone) enriched.phone = Array.from(phones)[0];

@@ -154,6 +154,21 @@
             <span class="nav-label">Leads</span>
             <span class="nav-badge" id="leadCount">0</span>
           </li>
+          <li class="nav-item" data-section="outreach">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+            </svg>
+            <span class="nav-label">Email Marketing</span>
+            <span class="nav-badge" id="outreachCount">0</span>
+          </li>
           <li class="nav-item" id="findLeadsNav" onclick="showModal('newCampaignModal')">
             <svg
               viewBox="0 0 24 24"
@@ -316,6 +331,87 @@
             </div>
           </div>
         </div>
+
+        <!-- Email Marketing / Outreach Section -->
+        <div class="section" id="section-outreach">
+          <div class="leads-header">
+            <h2 class="section-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+              </svg>
+              Email Marketing
+            </h2>
+            <div class="leads-tools">
+              <input type="search" id="outreachSearch" placeholder="Search name or email…" aria-label="Search leads to email" />
+              <button class="btn btn-secondary btn-sm" onclick="dashboard.loadOutreach()">Refresh</button>
+            </div>
+          </div>
+
+          <div id="outreachModeBadge" style="margin: 0.5rem 0; font-size: 0.85rem; color: var(--text-muted)"></div>
+
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem">
+            <button class="btn btn-primary btn-sm" id="outreachTabCompose" onclick="dashboard.setOutreachView('compose')">Compose</button>
+            <button class="btn btn-secondary btn-sm" id="outreachTabActivity" onclick="dashboard.setOutreachView('activity')">Activity / Logs</button>
+          </div>
+
+          <div id="outreachComposePanel">
+          <div style="margin: 0.5rem 0 1rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; font-size: 0.85rem">
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer">
+              <input type="checkbox" id="outreachHasEmail" checked onchange="dashboard.loadOutreach()" />
+              <span>Only leads with an email</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer">
+              <input type="checkbox" id="outreachHideContacted" onchange="dashboard.renderOutreachTable()" />
+              <span>Hide already contacted</span>
+            </label>
+            <select id="outreachPriority" onchange="dashboard.loadOutreach()"
+              style="padding: 0.5rem 0.75rem; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; font-size: 0.85rem">
+              <option value="">All priorities</option>
+              <option value="HIGH">High priority</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
+            </select>
+          </div>
+
+          <div class="card" style="padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center">
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer; font-weight: 600">
+              <input type="checkbox" id="outreachSelectAll" onchange="dashboard.toggleSelectAllOutreach(this.checked)" />
+              <span id="outreachSelectedCount">0 selected</span>
+            </label>
+            <span style="margin-left: auto; display: flex; gap: 0.5rem; flex-wrap: wrap">
+              <button class="btn btn-secondary btn-sm" onclick="dashboard.exportSelectedOutreach()">Export selected CSV</button>
+              <button class="btn btn-secondary btn-sm" onclick="dashboard.generateSelected()">✨ Generate emails</button>
+              <button class="btn btn-primary btn-sm" onclick="dashboard.sendSelected()">Send / Open drafts</button>
+            </span>
+          </div>
+
+          <div id="outreachTableContainer">
+            <div class="card" style="text-align: center; padding: 2rem">
+              <p class="empty-title">Loading…</p>
+            </div>
+          </div>
+
+          <div id="outreachDrafts" style="margin-top: 1.5rem"></div>
+          </div><!-- /outreachComposePanel -->
+
+          <div id="outreachActivityPanel" style="display: none">
+            <div class="stats-grid" id="outreachStatsGrid"></div>
+            <div style="margin: 0.75rem 0 1rem; display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; font-size: 0.85rem">
+              <span style="color: var(--text-muted)">Filter:</span>
+              <button class="btn btn-secondary btn-sm outreach-log-filter active" data-status="">All</button>
+              <button class="btn btn-secondary btn-sm outreach-log-filter" data-status="queued">Queued</button>
+              <button class="btn btn-secondary btn-sm outreach-log-filter" data-status="sent">Sent</button>
+              <button class="btn btn-secondary btn-sm outreach-log-filter" data-status="delivered">Delivered</button>
+              <button class="btn btn-secondary btn-sm outreach-log-filter" data-status="opened">Opened</button>
+              <button class="btn btn-secondary btn-sm outreach-log-filter" data-status="failed">Failed</button>
+              <button class="btn btn-secondary btn-sm" style="margin-left: auto" onclick="dashboard.loadOutreachLog()">Refresh</button>
+            </div>
+            <div id="outreachLogContainer">
+              <div class="card" style="text-align: center; padding: 2rem"><p class="empty-title">No activity yet</p></div>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
 
@@ -337,6 +433,20 @@
             <path d="M16 3.13a4 4 0 0 1 0 7.75" />
           </svg>
           Leads
+        </li>
+        <li class="bottom-nav-item" data-section="outreach">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+          </svg>
+          Email
         </li>
         <li class="bottom-nav-item" onclick="showModal('newCampaignModal')">
           <svg

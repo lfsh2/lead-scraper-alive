@@ -92,7 +92,171 @@ class LeadsDbPostgres {
       campaign_id TEXT,
       first_seen_at TIMESTAMPTZ DEFAULT now()
     )`);
+    // Outreach drafts + send log, keyed by the lead's dedup_key.
+    await this.pool.query(`CREATE TABLE IF NOT EXISTS outreach (
+      dedup_key TEXT PRIMARY KEY,
+      to_email TEXT,
+      subject TEXT,
+      body TEXT,
+      status TEXT,
+      error TEXT,
+      generated_at TIMESTAMPTZ,
+      sent_at TIMESTAMPTZ
+    )`);
+    // Columns added after v1 — safe on existing tables.
+    await this.pool.query(`ALTER TABLE outreach ADD COLUMN IF NOT EXISTS provider TEXT`);
+    await this.pool.query(`ALTER TABLE outreach ADD COLUMN IF NOT EXISTS provider_id TEXT`);
+    await this.pool.query(`ALTER TABLE outreach ADD COLUMN IF NOT EXISTS queued_at TIMESTAMPTZ`);
+    await this.pool.query(`ALTER TABLE outreach ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ`);
+    await this.pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_status ON outreach(status)`);
     console.log(`[LeadsDb] Postgres ready (${this._safeHost()})`);
+  }
+
+  // ── Outreach queue + activity log ────────────────────────────────────
+  async enqueueOutreach(rows) {
+    await this.ready;
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    for (const r of rows) {
+      await this.pool.query(
+        `INSERT INTO outreach (dedup_key, to_email, subject, body, status, provider, queued_at, updated_at)
+         VALUES ($1,$2,$3,$4,'queued',$5,now(),now())
+         ON CONFLICT (dedup_key) DO UPDATE SET
+           to_email = EXCLUDED.to_email, subject = EXCLUDED.subject, body = EXCLUDED.body,
+           status = 'queued', provider = EXCLUDED.provider, error = '',
+           queued_at = now(), updated_at = now()`,
+        [r.key, r.to || "", r.subject || "", r.body || "", r.provider || ""]
+      );
+    }
+  }
+
+  async getQueuedOutreach(limit) {
+    await this.ready;
+    const res = await this.pool.query(
+      `SELECT * FROM outreach WHERE status = 'queued' ORDER BY queued_at ASC NULLS FIRST LIMIT $1`,
+      [Math.max(1, parseInt(limit) || 50)]
+    );
+    return res.rows;
+  }
+
+  async updateOutreachStatus(key, f = {}) {
+    await this.ready;
+    const sets = ["updated_at = now()"];
+    const params = [];
+    if (f.status !== undefined) { params.push(f.status); sets.push(`status = $${params.length}`); }
+    if (f.providerId !== undefined) { params.push(f.providerId); sets.push(`provider_id = $${params.length}`); }
+    if (f.error !== undefined) { params.push(f.error); sets.push(`error = $${params.length}`); }
+    if (f.sentAt !== undefined) { params.push(f.sentAt); sets.push(`sent_at = $${params.length}`); }
+    params.push(key);
+    await this.pool.query(
+      `UPDATE outreach SET ${sets.join(", ")} WHERE dedup_key = $${params.length}`,
+      params
+    );
+  }
+
+  async resetSendingToQueued() {
+    await this.ready;
+    await this.pool.query(
+      `UPDATE outreach SET status = 'queued', updated_at = now() WHERE status = 'sending'`
+    );
+  }
+
+  async getOutreachLog(opts = {}) {
+    await this.ready;
+    const where = [];
+    const params = [];
+    if (opts.status) { params.push(opts.status); where.push(`o.status = $${params.length}`); }
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const limit = Math.min(parseInt(opts.limit) || 50, 200);
+    const page = Math.max(parseInt(opts.page) || 1, 1);
+    const offset = (page - 1) * limit;
+    const countRes = await this.pool.query(
+      `SELECT COUNT(*)::int AS n FROM outreach o ${whereSql}`,
+      params
+    );
+    const rowsRes = await this.pool.query(
+      `SELECT o.*, l.name AS lead_name FROM outreach o
+       LEFT JOIN leads l ON l.dedup_key = o.dedup_key
+       ${whereSql}
+       ORDER BY COALESCE(o.updated_at, o.generated_at) DESC NULLS LAST
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset]
+    );
+    const total = countRes.rows[0].n;
+    return {
+      rows: rowsRes.rows,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
+    };
+  }
+
+  async getOutreachStats() {
+    await this.ready;
+    const res = await this.pool.query(
+      `SELECT status, COUNT(*)::int AS n FROM outreach GROUP BY status`
+    );
+    const by = {};
+    for (const r of res.rows) by[r.status || ""] = r.n;
+    return by;
+  }
+
+  async getOutreachByKey(key) {
+    await this.ready;
+    const r = await this.pool.query(`SELECT * FROM outreach WHERE dedup_key = $1`, [key]);
+    return r.rows[0] || null;
+  }
+
+  async getOutreachByProviderId(id) {
+    await this.ready;
+    const r = await this.pool.query(`SELECT * FROM outreach WHERE provider_id = $1`, [id]);
+    return r.rows[0] || null;
+  }
+
+  // ── Outreach ─────────────────────────────────────────────────────────
+  async getLeadsByKeys(keys) {
+    await this.ready;
+    if (!Array.isArray(keys) || keys.length === 0) return [];
+    const res = await this.pool.query(
+      `SELECT * FROM leads WHERE dedup_key = ANY($1)`,
+      [keys]
+    );
+    return res.rows;
+  }
+
+  async recordOutreach(rows) {
+    await this.ready;
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    for (const r of rows) {
+      await this.pool.query(
+        `INSERT INTO outreach (dedup_key, to_email, subject, body, status, error, generated_at, sent_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (dedup_key) DO UPDATE SET
+           to_email = EXCLUDED.to_email,
+           subject  = EXCLUDED.subject,
+           body     = EXCLUDED.body,
+           status   = EXCLUDED.status,
+           error    = EXCLUDED.error,
+           generated_at = COALESCE(EXCLUDED.generated_at, outreach.generated_at),
+           sent_at  = COALESCE(EXCLUDED.sent_at, outreach.sent_at)`,
+        [
+          r.key,
+          r.to || "",
+          r.subject || "",
+          r.body || "",
+          r.status || "",
+          r.error || "",
+          r.generatedAt || null,
+          r.sentAt || null,
+        ]
+      );
+    }
+  }
+
+  async getSentKeys() {
+    await this.ready;
+    const res = await this.pool.query(
+      `SELECT dedup_key FROM outreach
+       WHERE status IN ('queued','sending','sent','delivered','opened')`
+    );
+    return res.rows.map((r) => r.dedup_key);
   }
 
   // ── Dedup registry (see src/leadsRegistryDb.js facade) ────────────────
