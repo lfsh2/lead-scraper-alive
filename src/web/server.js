@@ -41,8 +41,37 @@ const app = express();
 const PORT = process.env.PORT || process.env.WEB_PORT || 3000;
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// ─── Access control ─────────────────────────────────────────
+// The whole app (dashboard + API + exports) is gated behind HTTP Basic Auth
+// when DASHBOARD_PASSWORD is set. Without it, spend-triggering endpoints
+// (/api/campaigns) and your entire lead database would be open to anyone who
+// finds the URL. Health + the Resend webhook stay open (external callers).
+const crypto = require('crypto');
+const DASH_USER = process.env.DASHBOARD_USER || 'admin';
+const DASH_PASS = process.env.DASHBOARD_PASSWORD || '';
+const AUTH_EXEMPT = new Set(['/api/health', '/api/outreach/webhook']);
+function safeEq(a, b) {
+    const ab = Buffer.from(String(a));
+    const bb = Buffer.from(String(b));
+    return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
+}
+if (!DASH_PASS) {
+    console.warn('[Auth] DASHBOARD_PASSWORD not set — dashboard/API are OPEN. Set it (and in DigitalOcean) to lock down the live app.');
+}
+app.use((req, res, next) => {
+    if (!DASH_PASS || AUTH_EXEMPT.has(req.path)) return next();
+    const [scheme, encoded] = (req.headers.authorization || '').split(' ');
+    if (scheme === 'Basic' && encoded) {
+        const [user, pass] = Buffer.from(encoded, 'base64').toString().split(':');
+        if (safeEq(user, DASH_USER) && safeEq(pass, DASH_PASS)) return next();
+    }
+    res.set('WWW-Authenticate', 'Basic realm="Business Leads AI"');
+    return res.status(401).send('Authentication required');
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Store for active campaigns and SSE connections
@@ -113,9 +142,9 @@ function getLeadsData(campaignId) {
 app.get('/api/events', (req, res) => {
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
+        // same-origin only — no wildcard CORS
         'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*'
+        'Connection': 'keep-alive'
     });
 
     // Add connection to active connections
@@ -782,6 +811,14 @@ app.post('/api/campaigns', async (req, res) => {
             return res.status(400).json({ error: 'A search query (keywords) is required' });
         }
 
+        // Concurrency guard — parallel scrapes multiply Apify/Anthropic spend
+        // (and can OOM a small box). Reject while one is running.
+        const maxConcurrent = parseInt(process.env.MAX_CONCURRENT_CAMPAIGNS || '', 10) || 1;
+        const running = [...activeCampaigns.values()].filter(c => c.status && c.status !== 'completed' && c.status !== 'failed').length;
+        if (running >= maxConcurrent) {
+            return res.status(429).json({ error: `A scrape is already running (max ${maxConcurrent}). Wait for it to finish.` });
+        }
+
         const campaignName = (name && name.trim()) || `${searchQuery} — ${country || 'US'}`;
         const campaignId = `campaign_${campaignName.replace(/\s+/g, '_')}_${Date.now()}`;
 
@@ -993,7 +1030,7 @@ async function executeCampaignAsync(campaignId) {
             const provider = chooseEnrichProvider(source);
             try {
                 if (provider === 'apify') {
-                    rawLeads = await apifyEnrichLeads(rawLeads, { deepEnrich: true });
+                    rawLeads = await apifyEnrichLeads(rawLeads, { deepEnrich: /^true$/i.test(process.env.APIFY_DEEP_ENRICH || '') });
                 } else {
                     rawLeads = await enrichLeads(rawLeads, { concurrency: 4, maxUrlsPerLead: 4 });
                 }

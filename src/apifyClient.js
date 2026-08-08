@@ -75,6 +75,39 @@ async function apiFetch(url, { method = "GET", body, timeoutMs = 30000 } = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ── Daily spend guard ────────────────────────────────────────────────────
+// Apify bills per dataset item. APIFY_DAILY_ITEM_CAP puts a hard ceiling on
+// items fetched per day (across all actors) so a bad query set, a loop, or an
+// abusive caller can't run up an unbounded bill. Counter is in-process and
+// resets at UTC midnight (and on restart).
+let _budgetDay = null;
+let _itemsToday = 0;
+function _rollDay() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== _budgetDay) {
+    _budgetDay = today;
+    _itemsToday = 0;
+  }
+}
+function _cap() {
+  return parseInt(process.env.APIFY_DAILY_ITEM_CAP || "", 10) || 0;
+}
+function _assertBudget() {
+  const cap = _cap();
+  if (!cap) return;
+  _rollDay();
+  if (_itemsToday >= cap) {
+    throw new ApifyError(
+      `Apify daily item cap reached (${_itemsToday}/${cap}). ` +
+        `Raise APIFY_DAILY_ITEM_CAP or wait for the UTC-midnight reset.`
+    );
+  }
+}
+function getUsage() {
+  _rollDay();
+  return { day: _budgetDay, items: _itemsToday, cap: _cap() };
+}
+
 const TERMINAL = new Set([
   "SUCCEEDED",
   "FAILED",
@@ -97,6 +130,7 @@ const TERMINAL = new Set([
  */
 async function runActor(actorId, input = {}, opts = {}) {
   assertConfigured();
+  _assertBudget(); // refuse to start a run once the daily item cap is hit
   const token = getToken();
   const label = opts.label || actorId;
   const maxItems = Number.isFinite(opts.maxItems) ? opts.maxItems : 1000;
@@ -174,8 +208,15 @@ async function runActor(actorId, input = {}, opts = {}) {
     if (batch.length < limit) break;
   }
 
-  console.log(`[Apify] ${label}: ${items.length} items`);
+  // Count what we actually pulled against the daily budget.
+  _rollDay();
+  _itemsToday += items.length;
+  if (_cap() && _itemsToday >= _cap()) {
+    console.warn(`[Apify] daily item cap reached (${_itemsToday}/${_cap()}) — further runs will be blocked until reset.`);
+  }
+
+  console.log(`[Apify] ${label}: ${items.length} items (today: ${_itemsToday}${_cap() ? '/' + _cap() : ''})`);
   return items.slice(0, maxItems);
 }
 
-module.exports = { runActor, isConfigured, getToken, toPathId, ApifyError };
+module.exports = { runActor, isConfigured, getToken, toPathId, ApifyError, getUsage };

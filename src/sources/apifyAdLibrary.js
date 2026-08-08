@@ -139,7 +139,10 @@ async function scrape({ query, maxResults = 25, country = "US", activeStatus }) 
 
   // Actor bills per AD; one advertiser may run many ads. Over-fetch so that
   // after collapsing to one-per-advertiser we still net ~maxResults leads.
-  const adFetch = Math.min(Math.max(maxResults * 5, 50), 1000);
+  // 3x is usually enough (most advertisers run 2-3 ads) and ~40% cheaper than
+  // 5x — tune with APIFY_ADS_OVERFETCH.
+  const overfetch = parseFloat(process.env.APIFY_ADS_OVERFETCH || '') || 3;
+  const adFetch = Math.min(Math.max(Math.ceil(maxResults * overfetch), 50), 1000);
 
   const input = {
     urls: [

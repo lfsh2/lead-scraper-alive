@@ -122,7 +122,9 @@ async function main() {
           enriched =
             (process.env.ENRICH_PROVIDER || "auto") === "http"
               ? await enrichLeads(fresh, { concurrency: 4, maxUrlsPerLead: 4 })
-              : await apifyEnrichLeads(fresh, { deepEnrich: true });
+              : await apifyEnrichLeads(fresh, {
+                  deepEnrich: /^true$/i.test(process.env.APIFY_DEEP_ENRICH || ""),
+                });
         } catch (e) {
           console.warn(`[Daily]   enrichment failed: ${e.message}`);
         }
