@@ -231,40 +231,39 @@ class Dashboard {
 
     async loadAllLeads() {
         try {
-            const campaigns = await api.getCampaigns();
-            this.campaigns = campaigns;
+            // Read the deduplicated master list straight from the database, so
+            // every scraped lead shows here (incl. batch/volume runs) — not just
+            // whatever campaign files happen to be on disk.
+            const limitEl = document.getElementById('leadsLimit');
+            const limit = (limitEl && limitEl.value) || '250';
+            const [data, stats] = await Promise.all([
+                api.request(`/db/leads?limit=${encodeURIComponent(limit)}`),
+                api.request('/db/stats').catch(() => null)
+            ]);
 
-            // Fetch every campaign's leads in parallel and stamp source metadata
-            const results = await Promise.all(campaigns.map(async (c) => {
-                try {
-                    const data = await api.getLeads(c.id);
-                    return (data.leads || []).map((lead, index) => ({
-                        ...lead,
-                        _source: { id: c.id, name: c.name, index, executedAt: c.executedAt }
-                    }));
-                } catch (e) {
-                    return [];
-                }
+            this.allLeads = (data.leads || []).map(r => ({
+                name: r.name || '(no name)',
+                email: r.email || '',
+                phone: r.phone || '',
+                website: r.website || r.landing_url || r.page_url || '',
+                source: r.source || '',
+                dateAdded: r.created_at || r.scraped_at || '',
+                intelligence: { score: r.score, priority: (r.priority || '').toUpperCase() },
+                dedup_key: r.dedup_key
             }));
-
-            this.allLeads = results.flat();
-            // Newest first (by source executedAt)
-            this.allLeads.sort((a, b) => {
-                const ta = new Date(a._source?.executedAt || 0).getTime();
-                const tb = new Date(b._source?.executedAt || 0).getTime();
-                return tb - ta;
-            });
+            this.dbStats = stats;
             this.filteredLeads = this.allLeads;
 
             this.renderLeadStats();
-            this.populateSearchFilter();
+            this.populateSourceFilter();
             this._applyFilters();
 
             const badge = document.getElementById('leadCount');
-            if (badge) badge.textContent = api.formatNumber(this.allLeads.length);
+            if (badge) badge.textContent = api.formatNumber(stats ? stats.totalLeads : this.allLeads.length);
 
-            const exportBtn = document.getElementById('exportVCardBtn');
-            if (exportBtn) exportBtn.style.display = this.allLeads.length ? '' : 'none';
+            // Per-campaign vCard export no longer applies to the master list.
+            const vcardBtn = document.getElementById('exportVCardBtn');
+            if (vcardBtn) vcardBtn.style.display = 'none';
             const csvBtn = document.getElementById('exportCsvBtn');
             if (csvBtn) csvBtn.style.display = this.allLeads.length ? '' : 'none';
 
@@ -297,12 +296,13 @@ class Dashboard {
     }
 
     _applyFilters() {
-        const { query, searchId, minScore } = this._filterState;
+        const { query, searchId, minScore } = this._filterState; // searchId = source
         this.filteredLeads = this.allLeads.filter(l => {
-            if (searchId && l._source?.id !== searchId) return false;
+            if (searchId && l.source !== searchId) return false;
             if (minScore > 0 && Number(l.intelligence?.score || 0) < minScore) return false;
+            if (this._onlyEmail && !l.email) return false;
             if (query) {
-                const hay = [l.name, l.phone, l.address, l.website, l._source?.name]
+                const hay = [l.name, l.email, l.phone, l.website, l.source]
                     .filter(Boolean).join(' ').toLowerCase();
                 if (!hay.includes(query)) return false;
             }
@@ -311,22 +311,24 @@ class Dashboard {
         this.renderLeadsTable(this.filteredLeads);
         const strip = document.getElementById('leadCountStrip');
         if (strip) {
-            strip.textContent = `${this.filteredLeads.length} of ${this.allLeads.length} shown`;
+            strip.textContent = `${this.filteredLeads.length} shown`;
         }
     }
 
-    populateSearchFilter() {
+    setOnlyEmail(on) {
+        this._onlyEmail = !!on;
+        this._applyFilters();
+    }
+
+    populateSourceFilter() {
         const select = document.getElementById('leadsSearchFilter');
-        if (!select || !this.campaigns) return;
+        if (!select) return;
         const current = select.value;
-        const opts = ['<option value="">All searches</option>']
-            .concat(this.campaigns.map(c => {
-                const count = this.allLeads.filter(l => l._source?.id === c.id).length;
-                const label = `${c.name} (${count})`;
-                return `<option value="${c.id}">${this._escapeHtml(label)}</option>`;
-            }));
+        const sources = [...new Set(this.allLeads.map(l => l.source).filter(Boolean))].sort();
+        const opts = ['<option value="">All sources</option>']
+            .concat(sources.map(s => `<option value="${this._escapeHtml(s)}">${this._escapeHtml(s)}</option>`));
         select.innerHTML = opts.join('');
-        if (current && this.campaigns.some(c => c.id === current)) select.value = current;
+        if (current && sources.includes(current)) select.value = current;
     }
 
     _escapeHtml(s) {
@@ -341,11 +343,12 @@ class Dashboard {
         const grid = document.getElementById('leadStatsGrid');
         if (!grid) return;
 
-        const total = this.allLeads.length;
-        const priority = this.allLeads.filter(l => (l.intelligence?.priority || '').toUpperCase() === 'HIGH').length;
-        const withPhone = this.allLeads.filter(l => l.phone).length;
+        const s = this.dbStats;
+        const total = s ? s.totalLeads : this.allLeads.length;
+        const withEmail = s ? s.withEmail : this.allLeads.filter(l => l.email).length;
+        const withPhone = s ? s.withPhone : this.allLeads.filter(l => l.phone).length;
         const scores = this.allLeads.map(l => Number(l.intelligence?.score)).filter(n => !isNaN(n));
-        const avgScore = scores.length ? Math.round(scores.reduce((a,b) => a+b, 0) / scores.length) : 0;
+        const avgScore = s ? s.averageScore : (scores.length ? Math.round(scores.reduce((a,b) => a+b, 0) / scores.length) : 0);
 
         grid.innerHTML = `
             <div class="stat-card">
@@ -359,12 +362,12 @@ class Dashboard {
             </div>
             <div class="stat-card">
                 <div class="stat-header">
-                    <span class="stat-label">High Priority</span>
+                    <span class="stat-label">With Email</span>
                     <div class="stat-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                     </div>
                 </div>
-                <div class="stat-value">${api.formatNumber(priority)}</div>
+                <div class="stat-value">${api.formatNumber(withEmail)}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-header">
@@ -406,12 +409,11 @@ class Dashboard {
                 { key: 'name', title: 'Business', type: 'text' },
                 { key: 'email', title: 'Email', type: 'text' },
                 { key: 'phone', title: 'Phone', type: 'text' },
-                { key: 'website', title: 'Link', type: 'link' },
-                { key: 'platforms', title: 'Platforms', type: 'tags' },
+                { key: 'website', title: 'Website', type: 'link' },
+                { key: 'source', title: 'Source', type: 'text' },
                 { key: 'intelligence.score', title: 'Score', type: 'score' },
                 { key: 'intelligence.priority', title: 'Priority', type: 'priority' },
-                { key: '_source.name', title: 'Search', type: 'text' },
-                { key: 'actions', title: 'Actions', type: 'actions' }
+                { key: 'dateAdded', title: 'Date Added', type: 'date' }
             ],
             data: leads,
             pagination: true,
@@ -437,20 +439,23 @@ class Dashboard {
         campaignData.skipDuplicates = skipBox && skipBox.checked ? 'true' : 'false';
         const enrichBox = document.getElementById('campaignEnrichContacts');
         campaignData.enrichContacts = enrichBox && enrichBox.checked ? 'true' : 'false';
+        campaignData.language = 'english';
 
-        if (!campaignData.name || !campaignData.industry || !campaignData.location || !campaignData.searchQuery || !campaignData.yourService) {
-            showNotification('Validation Error', 'Please fill in all required fields', 'warning');
+        // Only the keywords are required now — everything else has a default.
+        if (!campaignData.searchQuery) {
+            showNotification('Missing keywords', 'Enter what to search for (e.g. "christian life coach").', 'warning');
             return;
         }
+        const label = (campaignData.name && campaignData.name.trim()) || campaignData.searchQuery;
 
         try {
             hideModal();
-            this.progressManager.show(campaignData.name);
+            this.progressManager.show(label);
 
             const result = await api.createCampaign(campaignData);
 
             if (result.success) {
-                showNotification('Search started', `Looking for leads matching "${campaignData.name}"`, 'success');
+                showNotification('Search started', `Scraping leads for "${label}"`, 'success');
                 form.reset();
             }
         } catch (error) {
@@ -555,17 +560,14 @@ class Dashboard {
             showNotification('Export', 'No leads to export yet', 'warning');
             return;
         }
-        // If a single search is selected, use its dedicated endpoint —
-        // otherwise export every unique lead across every run.
-        const selected = (this._filterState && this._filterState.searchId) || '';
-        if (selected) {
-            window.open(`/api/campaigns/${encodeURIComponent(selected)}/export/csv`, '_blank');
-            const c = (this.campaigns || []).find(x => x.id === selected);
-            showNotification('Export', `Downloading CSV for "${c ? c.name : selected}"…`, 'success');
-        } else {
-            window.open('/api/leads/export/csv', '_blank');
-            showNotification('Export', `Downloading CSV of all ${this.allLeads.length} leads…`, 'success');
-        }
+        // Export the whole deduplicated database, honoring the source filter.
+        const params = new URLSearchParams();
+        const src = (this._filterState && this._filterState.searchId) || '';
+        if (src) params.set('source', src);
+        if (this._onlyEmail) params.set('hasContact', 'true');
+        const qs = params.toString();
+        window.open(`/api/db/leads/export/csv${qs ? '?' + qs : ''}`, '_blank');
+        showNotification('Export', 'Downloading leads CSV…', 'success');
     }
 
     // ─── Registry stats strip ───────────────────────────────

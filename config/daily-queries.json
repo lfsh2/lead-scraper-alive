@@ -1,0 +1,11 @@
+{
+  "_comment": "Volume pull via the validated Apify path (Ad Library discovery + Facebook Pages email enrichment). Each query is deduped against the registry and against each other, enriched for emails, scored, and saved to the DB. Add apify_instagram / apify_maps / apify_leads entries once those actors are tested.",
+  "queries": [
+    { "source": "apify_ads", "query": "christian life coach", "country": "US", "industry": "professional", "maxResults": 40, "enrich": true },
+    { "source": "apify_ads", "query": "faith based life coach", "country": "US", "industry": "professional", "maxResults": 40, "enrich": true },
+    { "source": "apify_ads", "query": "christian business coach", "country": "US", "industry": "professional", "maxResults": 40, "enrich": true },
+    { "source": "apify_ads", "query": "christian coach for women", "country": "US", "industry": "professional", "maxResults": 40, "enrich": true },
+    { "source": "apify_ads", "query": "faith based business coach", "country": "US", "industry": "professional", "maxResults": 40, "enrich": true },
+    { "source": "apify_ads", "query": "christian mindset coach", "country": "US", "industry": "professional", "maxResults": 40, "enrich": true }
+  ]
+}

@@ -733,28 +733,34 @@ app.post('/api/outreach/mark', async (req, res) => {
 // Create new campaign endpoint
 app.post('/api/campaigns', async (req, res) => {
     try {
-        const { name, industry, location, searchQuery, maxResults, yourService, contentStyle, language, source, country } = req.body;
+        const { name, industry, location, searchQuery, maxResults, yourService, contentStyle, language, source, country, adStatus, minScore } = req.body;
 
-        // Validate required fields
-        if (!name || !industry || !location || !searchQuery || !yourService) {
-            return res.status(400).json({ error: 'Missing required fields' });
+        // Only the search query is truly required for a scrape — everything else
+        // has a sensible default so the form stays lean.
+        if (!searchQuery) {
+            return res.status(400).json({ error: 'A search query (keywords) is required' });
         }
 
-        const campaignId = `campaign_${name.replace(/\s+/g, '_')}_${Date.now()}`;
+        const campaignName = (name && name.trim()) || `${searchQuery} — ${country || 'US'}`;
+        const campaignId = `campaign_${campaignName.replace(/\s+/g, '_')}_${Date.now()}`;
 
         // Store campaign in active campaigns
         activeCampaigns.set(campaignId, {
             id: campaignId,
-            name,
-            industry,
-            location,
+            name: campaignName,
+            industry: industry || process.env.PRIMARY_INDUSTRY || 'professional',
+            location: location || country || 'US',
             searchQuery,
-            maxResults: parseInt(maxResults) || 20,
-            yourService,
+            maxResults: parseInt(maxResults) || 40,
+            yourService: yourService || 'Marketing & systems for faith-based coaches — aliveandfreeconsulting.com',
             contentStyle: contentStyle || 'balanced',
-            language: language || 'indonesian',
-            source: source || 'meta_ads',
+            language: language || 'english',
+            source: source || 'apify_ads',
             country: country || 'US',
+            // Meta Ad Library: 'active' (currently spending) vs 'all'.
+            adStatus: adStatus === 'all' ? 'all' : 'active',
+            // Only keep leads scoring at/above this (0 = keep everything).
+            minScore: parseInt(minScore) || 0,
             // Default: skip duplicates. The form posts 'on'/'true' when checked, omits when unchecked.
             // To explicitly disable from the API, pass skipDuplicates: false (or 'false').
             skipDuplicates: !(req.body.skipDuplicates === false || req.body.skipDuplicates === 'false' || req.body.skipDuplicates === 'off'),
@@ -873,7 +879,8 @@ async function executeCampaignAsync(campaignId) {
                 maxResults: campaign.maxResults,
                 country: campaign.country || 'US',
                 location: campaign.location,
-                industry: campaign.industry
+                industry: campaign.industry,
+                activeStatus: campaign.adStatus || 'active'
             });
         } else if (source === 'meta_ads') {
             scraper = new MetaScraper();
@@ -957,18 +964,29 @@ async function executeCampaignAsync(campaignId) {
         // Phase 2: Lead Intelligence
         campaign.status = 'analyzing';
         const scoredLeads = await intelligence.scoreLeads(rawLeads, campaign.industry);
-        
+
+        // Quality floor: only KEEP leads at/above minScore (0 = keep all). We
+        // still record every scraped lead in the registry below so we don't
+        // re-pay to scrape the dropped ones next run.
+        const minScore = campaign.minScore || 0;
+        const keptLeads = minScore > 0
+            ? scoredLeads.filter(l => (l.intelligence?.score || 0) >= minScore)
+            : scoredLeads;
+        campaign.droppedByScore = scoredLeads.length - keptLeads.length;
+
         campaign.progress = 70;
         broadcastSSE({
             type: 'campaign_progress',
             campaignId,
             progress: 70,
-            message: 'Analyzing lead intelligence...'
+            message: minScore > 0
+                ? `Kept ${keptLeads.length} leads scoring ≥ ${minScore} (dropped ${campaign.droppedByScore})`
+                : 'Analyzing lead intelligence...'
         });
 
         // Phase 3: Content Generation (for high-priority leads only)
         campaign.status = 'generating';
-        const highPriorityLeads = scoredLeads.filter(lead => lead.intelligence.priority === 'HIGH');
+        const highPriorityLeads = keptLeads.filter(lead => lead.intelligence.priority === 'HIGH');
         
         for (let i = 0; i < Math.min(highPriorityLeads.length, 5); i++) {
             try {
@@ -1009,32 +1027,35 @@ async function executeCampaignAsync(campaignId) {
             fs.mkdirSync(outputDir, { recursive: true });
         }
 
-        // Save campaign results
+        // Save campaign results (only the kept leads — those that passed the
+        // quality floor).
         const campaignInfo = {
             ...campaign,
             executedAt: new Date().toISOString(),
             results: {
-                totalLeads: scoredLeads.length,
-                highQualityLeads: scoredLeads.filter(lead => lead.intelligence.score >= 65).length,
-                priorityLeads: scoredLeads.filter(lead => lead.intelligence.priority === 'HIGH').length,
-                averageScore: scoredLeads.length ? Math.round(scoredLeads.reduce((sum, lead) => sum + lead.intelligence.score, 0) / scoredLeads.length) : 0,
+                totalLeads: keptLeads.length,
+                highQualityLeads: keptLeads.filter(lead => lead.intelligence.score >= 65).length,
+                priorityLeads: keptLeads.filter(lead => lead.intelligence.priority === 'HIGH').length,
+                averageScore: keptLeads.length ? Math.round(keptLeads.reduce((sum, lead) => sum + lead.intelligence.score, 0) / keptLeads.length) : 0,
                 contentGenerated: Math.min(highPriorityLeads.length, 5),
+                droppedByScore: campaign.droppedByScore || 0,
                 enhancedAI: true
             },
             outputPath: outputDir
         };
 
         fs.writeFileSync(`${outputDir}/campaign_info.json`, JSON.stringify(campaignInfo, null, 2));
-        fs.writeFileSync(`${outputDir}/leads_with_intelligence.json`, JSON.stringify(scoredLeads, null, 2));
+        fs.writeFileSync(`${outputDir}/leads_with_intelligence.json`, JSON.stringify(keptLeads, null, 2));
 
-        // Register every newly-discovered lead so subsequent runs skip them
+        // Register EVERY scraped lead so subsequent runs skip them (even the
+        // ones dropped by the score floor — we already paid to scrape them).
         const recordedCount = await leadsRegistry.recordMany(scoredLeads, campaignId);
         campaign.recordedToRegistry = recordedCount;
 
-        // Persist campaign + every lead to the SQLite database
+        // Persist campaign + the kept leads to the database
         try {
             await leadsDb.saveCampaign(campaignInfo);
-            const dbResult = await leadsDb.saveLeads(scoredLeads, campaignId, campaign.name);
+            const dbResult = await leadsDb.saveLeads(keptLeads, campaignId, campaign.name);
             campaign.savedToDb = dbResult;
             console.log(`[LeadsDb] Campaign ${campaignId}: ${dbResult.added} new leads saved, ${dbResult.updated} updated`);
         } catch (dbErr) {
@@ -1051,7 +1072,7 @@ async function executeCampaignAsync(campaignId) {
             type: 'campaign_completed',
             campaignId,
             progress: 100,
-            message: `Campaign completed! Generated ${scoredLeads.length} leads`,
+            message: `Campaign completed! ${keptLeads.length} leads saved`,
             results: campaignInfo.results
         });
 

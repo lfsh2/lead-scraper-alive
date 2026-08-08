@@ -211,7 +211,7 @@
               <input
                 type="search"
                 id="leadsSearch"
-                placeholder="Search by name, phone, address…"
+                placeholder="Search name, email, phone, website…"
                 aria-label="Search leads"
               />
               <select
@@ -219,7 +219,7 @@
                 aria-label="Filter by search"
                 style="padding: 0.5rem 0.75rem; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; font-size: 0.85rem; max-width: 220px"
               >
-                <option value="">All searches</option>
+                <option value="">All sources</option>
               </select>
               <button
                 class="btn btn-secondary btn-sm"
@@ -294,6 +294,19 @@
             <button class="score-pill" data-min="65">Score ≥ 65 (good)</button>
             <button class="score-pill" data-min="75">Score ≥ 75 (high)</button>
             <button class="score-pill" data-min="85">Score ≥ 85 (top)</button>
+            <label style="display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; margin-left: 0.5rem">
+              <input type="checkbox" id="leadsOnlyEmail" onchange="dashboard.setOnlyEmail(this.checked)" />
+              <span>With email</span>
+            </label>
+            <label style="display: inline-flex; align-items: center; gap: 0.35rem; margin-left: 0.5rem">
+              <span style="color: var(--text-muted)">Show</span>
+              <select id="leadsLimit" onchange="dashboard.loadAllLeads()" style="padding: 0.3rem 0.5rem; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; font-size: 0.85rem">
+                <option value="100">100</option>
+                <option value="250" selected>250</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
+              </select>
+            </label>
             <span style="margin-left: auto; color: var(--text-muted)" id="leadCountStrip"></span>
           </div>
 
@@ -492,31 +505,31 @@
         </div>
         <div class="modal-body">
           <form id="newCampaignForm" onsubmit="dashboard.createCampaign(event)">
+            <div style="font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin-bottom: 0.5rem">Search</div>
             <div class="form-group">
-              <label for="campaignName">Search Name</label>
+              <label for="campaignQuery">Keywords to search *</label>
               <input
                 type="text"
-                id="campaignName"
-                name="name"
-                placeholder="e.g., Faith Coaches — US (Meta Ads)"
+                id="campaignQuery"
+                name="searchQuery"
+                placeholder="e.g., christian life coach"
+                value="christian life coach"
                 required
               />
+              <small style="color: var(--text-muted)">The niche/role you're hunting. Broad = more leads; specific = more targeted.</small>
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="campaignSource">Lead Source</label>
+                <label for="campaignSource">Lead source</label>
                 <select id="campaignSource" name="source" required>
                   <optgroup label="Apify — reliable, gets emails (recommended)">
-                    <option value="apify_ads" selected>Meta Ad Library (active marketers)</option>
+                    <option value="apify_ads" selected>Meta Ad Library — active advertisers</option>
                     <option value="apify_leads">Leads Finder — verified emails</option>
                     <option value="apify_maps">Google Maps</option>
                     <option value="apify_instagram">Instagram</option>
                   </optgroup>
-                  <optgroup label="Built-in scraper (legacy, no proxies)">
-                    <option value="meta_ads">Meta Ad Library (legacy)</option>
-                    <option value="meta_pages">Facebook Pages search</option>
-                    <option value="meta_combined">Meta — Ads + Pages combined</option>
-                    <option value="google_maps">Google Maps (legacy)</option>
+                  <optgroup label="Built-in crawler (free, less reliable)">
+                    <option value="meta_ads">Meta Ad Library (built-in)</option>
                   </optgroup>
                 </select>
               </div>
@@ -535,8 +548,15 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="campaignIndustry">Industry</label>
-                <select id="campaignIndustry" name="industry" required>
+                <label for="campaignAdStatus">Ad status <span style="color: var(--text-muted); font-weight: normal">(Meta ads)</span></label>
+                <select id="campaignAdStatus" name="adStatus">
+                  <option value="active" selected>Active only — currently spending (hottest)</option>
+                  <option value="all">All ads — active + past</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="campaignIndustry">Industry <span style="color: var(--text-muted); font-weight: normal">(affects scoring)</span></label>
+                <select id="campaignIndustry" name="industry">
                   <option value="professional" selected>Coaching / Professional Services</option>
                   <option value="healthcare">Healthcare & Wellness</option>
                   <option value="education">Education</option>
@@ -547,79 +567,71 @@
                   <option value="custom">Custom / Other</option>
                 </select>
               </div>
-              <div class="form-group">
-                <label for="campaignLocation">Region label</label>
-                <input
-                  type="text"
-                  id="campaignLocation"
-                  name="location"
-                  placeholder="e.g., US Nationwide"
-                  value="US Nationwide"
-                  required
-                />
-              </div>
             </div>
-            <div class="form-group">
-              <label for="campaignQuery">Search Query</label>
-              <input
-                type="text"
-                id="campaignQuery"
-                name="searchQuery"
-                placeholder="e.g., faith based life coach"
-                value="faith based life coach"
-                required
-              />
-            </div>
-            <div class="form-group">
-              <label for="campaignService">Your Service Description</label>
-              <input
-                type="text"
-                id="campaignService"
-                name="yourService"
-                placeholder="e.g., Marketing & systems for faith-based coaches"
-                value="Marketing & systems for faith-based coaches — aliveandfreeconsulting.com"
-                required
-              />
-            </div>
+
+            <div style="font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin: 1.25rem 0 0.5rem">Results &amp; quality</div>
             <div class="form-row">
               <div class="form-group">
-                <label for="campaignMaxResults">Max Results</label>
+                <label for="campaignMaxResults">Limit — max leads to scrape</label>
                 <input
                   type="number"
                   id="campaignMaxResults"
                   name="maxResults"
-                  value="25"
+                  value="40"
                   min="5"
-                  max="100"
+                  max="200"
                 />
               </div>
               <div class="form-group">
-                <label for="campaignStyle">Outreach Tone</label>
-                <select id="campaignStyle" name="contentStyle">
-                  <option value="conservative">Conservative</option>
-                  <option value="balanced" selected>Balanced</option>
-                  <option value="aggressive">Bold</option>
+                <label for="campaignMinScore">Minimum quality score to keep</label>
+                <select id="campaignMinScore" name="minScore">
+                  <option value="0" selected>Keep all</option>
+                  <option value="50">50+ — drop weak</option>
+                  <option value="60">60+ — good only</option>
+                  <option value="70">70+ — strong only</option>
                 </select>
               </div>
             </div>
-            <div class="form-group">
-              <label for="campaignLanguage">Language</label>
-              <select id="campaignLanguage" name="language">
-                <option value="english" selected>English</option>
-                <option value="indonesian">Bahasa Indonesia</option>
-              </select>
+            <div class="form-group" style="padding-top: 0.25rem">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal">
+                <input type="checkbox" id="campaignEnrichContacts" name="enrichContacts" value="true" checked />
+                <span>Pull emails &amp; phones for each lead (recommended)</span>
+              </label>
             </div>
             <div class="form-group" style="padding-top: 0.25rem">
               <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal">
                 <input type="checkbox" id="campaignSkipDuplicates" name="skipDuplicates" value="true" checked />
-                <span>Skip leads I've already pulled (recommended — only fetch new ones)</span>
+                <span>Skip leads I've already pulled</span>
               </label>
             </div>
-            <div class="form-group" style="padding-top: 0.25rem">
-              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal">
-                <input type="checkbox" id="campaignEnrichContacts" name="enrichContacts" value="true" />
-                <span>Pull phone/email from each coach's website (slower, +3-5s per lead)</span>
-              </label>
+
+            <div style="font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); font-weight: 600; margin: 1.25rem 0 0.5rem">Optional — naming &amp; outreach copy</div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="campaignName">Save search as</label>
+                <input type="text" id="campaignName" name="name" placeholder="auto-named from keywords if blank" />
+              </div>
+              <div class="form-group">
+                <label for="campaignLocation">Location <span style="color: var(--text-muted); font-weight: normal">(Maps/Leads)</span></label>
+                <input type="text" id="campaignLocation" name="location" placeholder="e.g., United States" value="United States" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="campaignService">Your service <span style="color: var(--text-muted); font-weight: normal">(for auto-drafted outreach)</span></label>
+              <input
+                type="text"
+                id="campaignService"
+                name="yourService"
+                value="Marketing & systems for faith-based coaches — aliveandfreeconsulting.com"
+              />
+            </div>
+            <div class="form-group">
+              <label for="campaignStyle">Outreach tone</label>
+              <select id="campaignStyle" name="contentStyle">
+                <option value="conservative">Conservative</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="aggressive">Bold</option>
+              </select>
             </div>
             <div class="form-actions">
               <button

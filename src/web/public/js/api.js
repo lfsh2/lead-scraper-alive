@@ -68,7 +68,7 @@ class API {
         try {
             const date = new Date(dateStr);
             if (isNaN(date.getTime())) return '-';
-            return date.toLocaleDateString('id-ID', {
+            return date.toLocaleDateString('en-US', {
                 year: 'numeric',
                 month: 'short',
                 day: 'numeric',
