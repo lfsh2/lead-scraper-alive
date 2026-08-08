@@ -432,6 +432,9 @@ class LeadsDbPostgres {
     if (opts.hasContact === true || opts.hasContact === "true") {
       where.push(`(email != '' OR phone != '')`);
     }
+    if (opts.hasEmail === true || opts.hasEmail === "true") {
+      where.push(`email != ''`);
+    }
     if (opts.search) {
       const q = `%${opts.search}%`;
       params.push(q);

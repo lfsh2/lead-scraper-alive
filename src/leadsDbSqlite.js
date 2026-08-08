@@ -425,6 +425,9 @@ class LeadsDbSqlite {
     if (opts.hasContact === true || opts.hasContact === "true") {
       where.push("(email != '' OR phone != '')");
     }
+    if (opts.hasEmail === true || opts.hasEmail === "true") {
+      where.push("email != ''");
+    }
     if (opts.search) {
       where.push("(name LIKE ? OR email LIKE ? OR phone LIKE ? OR creative LIKE ?)");
       const q = `%${opts.search}%`;

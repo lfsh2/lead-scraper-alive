@@ -444,6 +444,51 @@ function leadsToCsv(leads, campaignName = '') {
     return rows.join('\r\n');
 }
 
+// Build CSV directly from database rows (canonical, deduplicated, latest
+// values) — the accurate source of truth for exports. Every stored field is
+// included so nothing scraped is lost.
+function dbRowsToCsv(rows) {
+    const headers = [
+        'name', 'source', 'score', 'priority', 'category',
+        'email', 'phone', 'website', 'page_url', 'landing_url',
+        'address', 'rating',
+        'platforms', 'ad_status', 'started_running_on', 'library_id',
+        'creative', 'recommendation', 'campaign', 'date_added', 'dedup_key'
+    ];
+    const fmtDate = (v) => {
+        if (!v) return '';
+        const d = v instanceof Date ? v : new Date(v);
+        return isNaN(d.getTime()) ? String(v) : d.toISOString();
+    };
+    const out = [headers.join(',')];
+    for (const r of rows) {
+        out.push([
+            toCsvCell(r.name),
+            toCsvCell(r.source),
+            toCsvCell(r.score),
+            toCsvCell(r.priority),
+            toCsvCell(r.category),
+            toCsvCell(r.email),
+            toCsvCell(r.phone),
+            toCsvCell(r.website),
+            toCsvCell(r.page_url),
+            toCsvCell(r.landing_url),
+            toCsvCell(r.address),
+            toCsvCell(r.rating),
+            toCsvCell(r.platforms),
+            toCsvCell(r.ad_status),
+            toCsvCell(r.started_running_on),
+            toCsvCell(r.library_id),
+            toCsvCell(r.creative),
+            toCsvCell(r.recommendation),
+            toCsvCell(r.campaign_name),
+            toCsvCell(fmtDate(r.created_at || r.scraped_at)),
+            toCsvCell(r.dedup_key)
+        ].join(','));
+    }
+    return out.join('\r\n');
+}
+
 // Export one campaign as CSV
 app.get('/api/campaigns/:id/export/csv', (req, res) => {
     try {
@@ -519,17 +564,13 @@ app.get('/api/db/stats', async (req, res) => {
 // Export the entire database (respecting the same filters) as CSV
 app.get('/api/db/leads/export/csv', async (req, res) => {
     try {
-        const leads = await leadsDb.exportLeads(req.query);
-        // Pull the full original lead out of raw_json so the CSV matches
-        // the per-campaign export format.
-        const restored = leads.map(row => {
-            let lead = {};
-            try { lead = JSON.parse(row.raw_json || '{}'); } catch { /* ignore */ }
-            return { ...lead, email: row.email || lead.email, phone: row.phone || lead.phone, _campaign: row.campaign_name };
-        });
-        const csv = leadsToCsv(restored.map(l => ({ ...l, source: l.source || l._campaign })), 'DATABASE');
+        // exportLeads applies the same filters (source, minScore, hasContact,
+        // search) as the dashboard, so the CSV matches exactly what you see.
+        const rows = await leadsDb.exportLeads(req.query);
+        const csv = dbRowsToCsv(rows);
+        const stamp = new Date().toISOString().slice(0, 10);
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename="leads_database.csv"');
+        res.setHeader('Content-Disposition', `attachment; filename="leads_${stamp}_${rows.length}.csv"`);
         res.send('﻿' + csv);
     } catch (error) {
         console.error('DB CSV export failed:', error);

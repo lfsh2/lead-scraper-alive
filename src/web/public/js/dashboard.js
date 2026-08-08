@@ -564,7 +564,8 @@ class Dashboard {
         const params = new URLSearchParams();
         const src = (this._filterState && this._filterState.searchId) || '';
         if (src) params.set('source', src);
-        if (this._onlyEmail) params.set('hasContact', 'true');
+        if (this._onlyEmail) params.set('hasEmail', 'true');
+        if (this._filterState && this._filterState.minScore > 0) params.set('minScore', this._filterState.minScore);
         const qs = params.toString();
         window.open(`/api/db/leads/export/csv${qs ? '?' + qs : ''}`, '_blank');
         showNotification('Export', 'Downloading leads CSV…', 'success');
