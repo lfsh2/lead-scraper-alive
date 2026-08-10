@@ -44,32 +44,87 @@ const PORT = process.env.PORT || process.env.WEB_PORT || 3000;
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ─── Access control ─────────────────────────────────────────
-// The whole app (dashboard + API + exports) is gated behind HTTP Basic Auth
-// when DASHBOARD_PASSWORD is set. Without it, spend-triggering endpoints
-// (/api/campaigns) and your entire lead database would be open to anyone who
-// finds the URL. Health + the Resend webhook stay open (external callers).
+// ─── Access control (session cookie + login page) ───────────
+// The whole app (dashboard + API + exports) is gated when DASHBOARD_PASSWORD
+// is set. Auth is a signed, expiring session cookie set by /api/login and its
+// login page — no ugly browser prompt. Without a password the app runs open
+// (with a warning). Health + the Resend webhook stay open for external callers.
+app.set('trust proxy', true);
 const crypto = require('crypto');
-const DASH_USER = process.env.DASHBOARD_USER || 'admin';
 const DASH_PASS = process.env.DASHBOARD_PASSWORD || '';
-const AUTH_EXEMPT = new Set(['/api/health', '/api/outreach/webhook']);
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const AUTH_EXEMPT = new Set(['/api/health', '/api/outreach/webhook', '/login', '/api/login', '/api/logout', '/api/auth/status']);
+
 function safeEq(a, b) {
     const ab = Buffer.from(String(a));
     const bb = Buffer.from(String(b));
     return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
 }
+// Stateless signed token: base64url(exp).hmac — HMAC key derived from the
+// password, so changing the password invalidates every existing session.
+function sessionKey() {
+    return crypto.createHash('sha256').update('sess:' + DASH_PASS).digest();
+}
+function makeToken() {
+    const payload = String(Date.now() + SESSION_TTL_MS);
+    const sig = crypto.createHmac('sha256', sessionKey()).update(payload).digest('base64url');
+    return Buffer.from(payload).toString('base64url') + '.' + sig;
+}
+function validToken(tok) {
+    if (!tok || tok.indexOf('.') < 0) return false;
+    const [p, sig] = tok.split('.');
+    const payload = Buffer.from(p, 'base64url').toString();
+    const expect = crypto.createHmac('sha256', sessionKey()).update(payload).digest('base64url');
+    if (!safeEq(sig, expect)) return false;
+    const exp = parseInt(payload, 10);
+    return Number.isFinite(exp) && Date.now() < exp;
+}
+function getCookie(req, name) {
+    const raw = req.headers.cookie || '';
+    for (const part of raw.split(';')) {
+        const eq = part.indexOf('=');
+        if (eq < 0) continue;
+        if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+    }
+    return null;
+}
+function sessionCookie(req, token, maxAgeSec) {
+    const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    return `session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}` + (secure ? '; Secure' : '');
+}
+
 if (!DASH_PASS) {
     console.warn('[Auth] DASHBOARD_PASSWORD not set — dashboard/API are OPEN. Set it (and in DigitalOcean) to lock down the live app.');
 }
+
+// Gate everything except the exempt paths.
 app.use((req, res, next) => {
     if (!DASH_PASS || AUTH_EXEMPT.has(req.path)) return next();
-    const [scheme, encoded] = (req.headers.authorization || '').split(' ');
-    if (scheme === 'Basic' && encoded) {
-        const [user, pass] = Buffer.from(encoded, 'base64').toString().split(':');
-        if (safeEq(user, DASH_USER) && safeEq(pass, DASH_PASS)) return next();
+    if (validToken(getCookie(req, 'session'))) return next();
+    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Not authenticated' });
+    return res.redirect('/login');
+});
+
+// Login page (served when a password is configured; otherwise straight in).
+app.get('/login', (req, res) => {
+    if (!DASH_PASS || validToken(getCookie(req, 'session'))) return res.redirect('/');
+    res.sendFile(path.join(__dirname, 'login.html'));
+});
+app.post('/api/login', (req, res) => {
+    if (!DASH_PASS) return res.json({ ok: true });
+    const password = (req.body && req.body.password) || '';
+    if (password && safeEq(password, DASH_PASS)) {
+        res.setHeader('Set-Cookie', sessionCookie(req, makeToken(), Math.floor(SESSION_TTL_MS / 1000)));
+        return res.json({ ok: true });
     }
-    res.set('WWW-Authenticate', 'Basic realm="Business Leads AI"');
-    return res.status(401).send('Authentication required');
+    return res.status(401).json({ error: 'Incorrect password' });
+});
+app.post('/api/logout', (req, res) => {
+    res.setHeader('Set-Cookie', sessionCookie(req, '', 0));
+    res.json({ ok: true });
+});
+app.get('/api/auth/status', (req, res) => {
+    res.json({ enabled: !!DASH_PASS, authenticated: !DASH_PASS || validToken(getCookie(req, 'session')) });
 });
 
 app.use(express.static(path.join(__dirname, 'public')));

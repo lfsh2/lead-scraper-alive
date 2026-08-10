@@ -21,7 +21,13 @@ class API {
 
         try {
             const response = await fetch(url, config);
-            
+
+            // Session expired / not authenticated → bounce to the login page.
+            if (response.status === 401 && endpoint !== '/auth/status') {
+                window.location.href = '/login';
+                throw new Error('Not authenticated');
+            }
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.error || `HTTP ${response.status}`);

@@ -26,12 +26,27 @@ class Dashboard {
 
     async init() {
         this.initTheme();
+        this.checkAuth();
         this.setupEventListeners();
         this.setupMobileNav();
         this.setupRealTimeUpdates();
         this.progressManager = new ProgressManager('campaignProgressModal');
 
         await this.loadAllLeads();
+    }
+
+    // ─── Auth ───────────────────────────────────────────────
+    async checkAuth() {
+        try {
+            const s = await api.request('/auth/status');
+            const btn = document.getElementById('signOutBtn');
+            if (btn) btn.style.display = s.enabled ? '' : 'none';
+        } catch (e) { /* non-fatal */ }
+    }
+
+    async logout() {
+        try { await api.request('/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
+        window.location.href = '/login';
     }
 
     // ─── Theme Management ───────────────────────────────────
