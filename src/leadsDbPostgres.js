@@ -435,6 +435,14 @@ class LeadsDbPostgres {
     if (opts.hasEmail === true || opts.hasEmail === "true") {
       where.push(`email != ''`);
     }
+    if (opts.dateFrom) {
+      params.push(opts.dateFrom);
+      where.push(`created_at::date >= ${next()}::date`);
+    }
+    if (opts.dateTo) {
+      params.push(opts.dateTo);
+      where.push(`created_at::date <= ${next()}::date`);
+    }
     if (opts.search) {
       const q = `%${opts.search}%`;
       params.push(q);
@@ -452,7 +460,7 @@ class LeadsDbPostgres {
   async getLeads(opts = {}) {
     await this.ready;
     const { whereSql, params } = this._buildWhere(opts);
-    const limit = Math.min(parseInt(opts.limit) || 50, 500);
+    const limit = Math.min(parseInt(opts.limit) || 50, 1000);
     const page = Math.max(parseInt(opts.page) || 1, 1);
     const offset = (page - 1) * limit;
 
@@ -489,19 +497,22 @@ class LeadsDbPostgres {
     return res.rows;
   }
 
-  async getStats() {
+  async getStats(opts = {}) {
     await this.ready;
+    const { whereSql, params } = this._buildWhere(opts);
     const agg = await this.pool.query(`SELECT
       COUNT(*)::int AS total,
       COUNT(*) FILTER (WHERE email != '')::int AS with_email,
       COUNT(*) FILTER (WHERE phone != '')::int AS with_phone,
       COALESCE(ROUND(AVG(score) FILTER (WHERE score IS NOT NULL)), 0)::int AS avg_score
-      FROM leads`);
+      FROM leads ${whereSql}`, params);
     const campaigns = await this.pool.query(
       `SELECT COUNT(*)::int AS n FROM campaigns`
     );
     const byPriority = await this.pool.query(
-      `SELECT priority, COUNT(*)::int AS n FROM leads WHERE priority != '' GROUP BY priority`
+      `SELECT priority, COUNT(*)::int AS n FROM leads
+       ${whereSql ? whereSql + " AND" : "WHERE"} priority != '' GROUP BY priority`,
+      params
     );
     const priorities = {};
     for (const r of byPriority.rows) priorities[r.priority] = r.n;

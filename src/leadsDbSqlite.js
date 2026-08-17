@@ -428,6 +428,14 @@ class LeadsDbSqlite {
     if (opts.hasEmail === true || opts.hasEmail === "true") {
       where.push("email != ''");
     }
+    if (opts.dateFrom) {
+      where.push("date(created_at) >= date(?)");
+      params.push(opts.dateFrom);
+    }
+    if (opts.dateTo) {
+      where.push("date(created_at) <= date(?)");
+      params.push(opts.dateTo);
+    }
     if (opts.search) {
       where.push("(name LIKE ? OR email LIKE ? OR phone LIKE ? OR creative LIKE ?)");
       const q = `%${opts.search}%`;
@@ -442,7 +450,7 @@ class LeadsDbSqlite {
   async getLeads(opts = {}) {
     await this.ready;
     const { whereSql, params } = this._buildWhere(opts);
-    const limit = Math.min(parseInt(opts.limit) || 50, 500);
+    const limit = Math.min(parseInt(opts.limit) || 50, 1000);
     const page = Math.max(parseInt(opts.page) || 1, 1);
     const offset = (page - 1) * limit;
 
@@ -477,23 +485,30 @@ class LeadsDbSqlite {
     );
   }
 
-  async getStats() {
+  async getStats(opts = {}) {
     await this.ready;
-    const total = await this._get(`SELECT COUNT(*) AS n FROM leads`);
-    const withEmail = await this._get(`SELECT COUNT(*) AS n FROM leads WHERE email != ''`);
-    const withPhone = await this._get(`SELECT COUNT(*) AS n FROM leads WHERE phone != ''`);
-    const avg = await this._get(`SELECT ROUND(AVG(score)) AS s FROM leads WHERE score IS NOT NULL`);
+    const { whereSql, params } = this._buildWhere(opts);
+    const agg = await this._get(
+      `SELECT COUNT(*) AS total,
+        SUM(CASE WHEN email != '' THEN 1 ELSE 0 END) AS with_email,
+        SUM(CASE WHEN phone != '' THEN 1 ELSE 0 END) AS with_phone,
+        ROUND(AVG(CASE WHEN score IS NOT NULL THEN score END)) AS avg_score
+       FROM leads ${whereSql}`,
+      params
+    );
     const campaigns = await this._get(`SELECT COUNT(*) AS n FROM campaigns`);
     const byPriority = await this._all(
-      `SELECT priority, COUNT(*) AS n FROM leads WHERE priority != '' GROUP BY priority`
+      `SELECT priority, COUNT(*) AS n FROM leads
+       ${whereSql ? whereSql + " AND" : "WHERE"} priority != '' GROUP BY priority`,
+      params
     );
     const priorities = {};
     for (const r of byPriority) priorities[r.priority] = r.n;
     return {
-      totalLeads: total.n,
-      withEmail: withEmail.n,
-      withPhone: withPhone.n,
-      averageScore: avg.s || 0,
+      totalLeads: agg.total,
+      withEmail: agg.with_email || 0,
+      withPhone: agg.with_phone || 0,
+      averageScore: agg.avg_score || 0,
       campaigns: campaigns.n,
       byPriority: priorities,
       dbPath: this.filePath,

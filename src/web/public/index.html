@@ -317,6 +317,24 @@
                 <option value="1000">1000</option>
               </select>
             </label>
+            <label style="display: inline-flex; align-items: center; gap: 0.35rem; margin-left: 0.5rem">
+              <span style="color: var(--text-muted)">Added</span>
+              <select id="leadsDatePreset" onchange="dashboard.onDatePreset(this.value)"
+                style="padding: 0.3rem 0.5rem; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; font-size: 0.85rem">
+                <option value="">All time</option>
+                <option value="today">Today</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </label>
+            <span id="leadsCustomDates" style="display: none; align-items: center; gap: 0.35rem">
+              <input type="date" id="leadsDateFrom" onchange="dashboard.onCustomDate()"
+                style="padding: 0.25rem 0.4rem; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; font-size: 0.8rem" />
+              <span style="color: var(--text-muted)">→</span>
+              <input type="date" id="leadsDateTo" onchange="dashboard.onCustomDate()"
+                style="padding: 0.25rem 0.4rem; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 6px; font-size: 0.8rem" />
+            </span>
             <span style="margin-left: auto; color: var(--text-muted)" id="leadCountStrip"></span>
           </div>
 

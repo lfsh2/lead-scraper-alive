@@ -638,7 +638,7 @@ app.get('/api/db/leads', async (req, res) => {
 // Database totals: lead count, contact coverage, priority breakdown
 app.get('/api/db/stats', async (req, res) => {
     try {
-        res.json(await leadsDb.getStats());
+        res.json(await leadsDb.getStats(req.query));
     } catch (error) {
         console.error('DB stats failed:', error);
         res.status(500).json({ error: 'Failed to load database stats' });

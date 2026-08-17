@@ -251,9 +251,12 @@ class Dashboard {
             // whatever campaign files happen to be on disk.
             const limitEl = document.getElementById('leadsLimit');
             const limit = (limitEl && limitEl.value) || '250';
+            const p = new URLSearchParams({ limit });
+            if (this._filterState.dateFrom) p.set('dateFrom', this._filterState.dateFrom);
+            if (this._filterState.dateTo) p.set('dateTo', this._filterState.dateTo);
             const [data, stats] = await Promise.all([
-                api.request(`/db/leads?limit=${encodeURIComponent(limit)}`),
-                api.request('/db/stats').catch(() => null)
+                api.request(`/db/leads?${p.toString()}`),
+                api.request(`/db/stats?${p.toString()}`).catch(() => null)
             ]);
 
             this.allLeads = (data.leads || []).map(r => ({
@@ -292,8 +295,37 @@ class Dashboard {
         }
     }
 
-    // Filter state — combined search text + search-name + min score
-    _filterState = { query: '', searchId: '', minScore: 0 };
+    // Filter state — search text + source + min score + date range
+    _filterState = { query: '', searchId: '', minScore: 0, dateFrom: '', dateTo: '' };
+
+    _ymd(d) { return d.toISOString().slice(0, 10); }
+
+    onDatePreset(v) {
+        const custom = document.getElementById('leadsCustomDates');
+        if (v === 'custom') { if (custom) custom.style.display = 'inline-flex'; return; }
+        if (custom) custom.style.display = 'none';
+        if (!v) {
+            this._filterState.dateFrom = ''; this._filterState.dateTo = '';
+        } else if (v === 'today') {
+            const t = this._ymd(new Date());
+            this._filterState.dateFrom = t; this._filterState.dateTo = t;
+        } else {
+            const to = new Date();
+            const from = new Date();
+            from.setUTCDate(from.getUTCDate() - (Number(v) - 1));
+            this._filterState.dateFrom = this._ymd(from);
+            this._filterState.dateTo = this._ymd(to);
+        }
+        this.loadAllLeads();
+    }
+
+    onCustomDate() {
+        const f = document.getElementById('leadsDateFrom');
+        const t = document.getElementById('leadsDateTo');
+        this._filterState.dateFrom = (f && f.value) || '';
+        this._filterState.dateTo = (t && t.value) || '';
+        this.loadAllLeads();
+    }
 
     filterLeads(query) {
         this._filterState.query = (query || '').trim().toLowerCase();
@@ -581,6 +613,8 @@ class Dashboard {
         if (src) params.set('source', src);
         if (this._onlyEmail) params.set('hasEmail', 'true');
         if (this._filterState && this._filterState.minScore > 0) params.set('minScore', this._filterState.minScore);
+        if (this._filterState && this._filterState.dateFrom) params.set('dateFrom', this._filterState.dateFrom);
+        if (this._filterState && this._filterState.dateTo) params.set('dateTo', this._filterState.dateTo);
         const qs = params.toString();
         window.open(`/api/db/leads/export/csv${qs ? '?' + qs : ''}`, '_blank');
         showNotification('Export', 'Downloading leads CSV…', 'success');
