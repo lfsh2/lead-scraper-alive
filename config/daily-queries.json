@@ -1,9 +1,13 @@
 {
-  "_comment": "COST NOTE: the Ad Library actor bills per AD, and dedup only removes duplicate LEADS *after* you've paid to scrape the ads. So heavily-overlapping queries (e.g. 'christian life coach' + 'faith based life coach' + 'christian business coach') re-pay for the same advertisers. Keep this list SHORT and DISTINCT — a few broad, non-overlapping terms cover the niche, and the faithSignal scoring surfaces the faith ones. Add more only if daily net-new leads drop off. Each query fetches ~overfetch× maxResults ads.",
+  "_comment": "Volume push (~400 new). FRESH queries — different from the ones already scraped, so dedup doesn't eat them. Mostly faith/coach terms (scoring surfaces the faith ones), a couple broader for pure volume. Each fetches ~overfetch x maxResults ads; enrich pulls emails via the Facebook Pages actor. DAILY_LEAD_CAP caps total NEW saved.",
   "queries": [
-    { "source": "apify_ads", "query": "christian life coach", "country": "US", "industry": "professional", "maxResults": 60, "enrich": true },
-    { "source": "apify_ads", "query": "faith based business coach", "country": "US", "industry": "professional", "maxResults": 60, "enrich": true },
-    { "source": "apify_ads", "query": "christian coach for women", "country": "US", "industry": "professional", "maxResults": 50, "enrich": true },
-    { "source": "apify_ads", "query": "biblical counselor", "country": "US", "industry": "professional", "maxResults": 40, "enrich": true }
+    { "source": "apify_ads", "query": "christian entrepreneur coach", "country": "US", "industry": "professional", "maxResults": 70, "enrich": true },
+    { "source": "apify_ads", "query": "ministry coach", "country": "US", "industry": "professional", "maxResults": 60, "enrich": true },
+    { "source": "apify_ads", "query": "faith based health coach", "country": "US", "industry": "professional", "maxResults": 60, "enrich": true },
+    { "source": "apify_ads", "query": "christian marriage coach", "country": "US", "industry": "professional", "maxResults": 60, "enrich": true },
+    { "source": "apify_ads", "query": "spiritual life coach", "country": "US", "industry": "professional", "maxResults": 70, "enrich": true },
+    { "source": "apify_ads", "query": "christian wellness coach", "country": "US", "industry": "professional", "maxResults": 60, "enrich": true },
+    { "source": "apify_ads", "query": "kingdom business coach", "country": "US", "industry": "professional", "maxResults": 50, "enrich": true },
+    { "source": "apify_ads", "query": "purpose coach for women", "country": "US", "industry": "professional", "maxResults": 60, "enrich": true }
   ]
 }
