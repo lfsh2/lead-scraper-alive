@@ -235,8 +235,8 @@
                 class="btn btn-secondary btn-sm"
                 id="exportCsvBtn"
                 style="display: none"
-                onclick="dashboard.exportAllCsv()"
-                title="Download every unique lead as CSV"
+                onclick="dashboard.openExportModal()"
+                title="Download leads as CSV"
               >
                 <svg
                   viewBox="0 0 24 24"
@@ -790,6 +790,63 @@
         </div>
         <div class="modal-body" id="marketingContent">
           <div class="loading">Loading content...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Leads Modal -->
+    <div class="modal" id="exportModal">
+      <div class="modal-content" style="max-width: 460px">
+        <div class="modal-header">
+          <h3>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Download leads
+          </h3>
+          <button class="modal-close" onclick="hideModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="exportDatePreset">Which leads?</label>
+            <select id="exportDatePreset" onchange="dashboard.onExportPreset(this.value)">
+              <option value="">All leads</option>
+              <option value="today">Today</option>
+              <option value="7">Last 7 days (this week)</option>
+              <option value="30">Last 30 days (this month)</option>
+              <option value="custom">Custom dates…</option>
+            </select>
+          </div>
+          <div class="form-row" id="exportCustomRow" style="display: none">
+            <div class="form-group">
+              <label for="exportDateFrom">From</label>
+              <input type="date" id="exportDateFrom" onchange="dashboard.updateExportCount()" />
+            </div>
+            <div class="form-group">
+              <label for="exportDateTo">To</label>
+              <input type="date" id="exportDateTo" onchange="dashboard.updateExportCount()" />
+            </div>
+          </div>
+          <div class="form-group" style="padding-top: 0.25rem">
+            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: normal">
+              <input type="checkbox" id="exportOnlyEmail" onchange="dashboard.updateExportCount()" />
+              <span>Only leads that have an email</span>
+            </label>
+          </div>
+          <div id="exportCount" style="font-size: 0.88rem; color: var(--text-muted); min-height: 1.2rem; margin: 0.25rem 0 0.5rem"></div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" id="exportDownloadBtn" onclick="dashboard.doExport()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Download CSV
+            </button>
+          </div>
         </div>
       </div>
     </div>

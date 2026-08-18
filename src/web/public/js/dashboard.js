@@ -602,22 +602,79 @@ class Dashboard {
         }
     }
 
-    exportAllCsv() {
-        if (!this.allLeads || this.allLeads.length === 0) {
-            showNotification('Export', 'No leads to export yet', 'warning');
-            return;
+    // Export dialog — pick the date range (and email-only) before downloading.
+    openExportModal() {
+        const preset = document.getElementById('exportDatePreset');
+        if (preset) preset.value = '';
+        const custom = document.getElementById('exportCustomRow');
+        if (custom) custom.style.display = 'none';
+        const oe = document.getElementById('exportOnlyEmail');
+        if (oe) oe.checked = !!this._onlyEmail; // carry over the table's toggle as default
+        const f = document.getElementById('exportDateFrom'); if (f) f.value = '';
+        const t = document.getElementById('exportDateTo'); if (t) t.value = '';
+        showModal('exportModal');
+        this.updateExportCount();
+    }
+
+    onExportPreset(v) {
+        const custom = document.getElementById('exportCustomRow');
+        if (custom) custom.style.display = v === 'custom' ? '' : 'none';
+        this.updateExportCount();
+    }
+
+    _exportParams() {
+        const p = new URLSearchParams();
+        const preset = (document.getElementById('exportDatePreset') || {}).value || '';
+        let from = '', to = '';
+        if (preset === 'today') {
+            from = to = this._ymd(new Date());
+        } else if (preset === '7' || preset === '30') {
+            const toD = new Date(), fromD = new Date();
+            fromD.setUTCDate(fromD.getUTCDate() - (Number(preset) - 1));
+            from = this._ymd(fromD); to = this._ymd(toD);
+        } else if (preset === 'custom') {
+            from = (document.getElementById('exportDateFrom') || {}).value || '';
+            to = (document.getElementById('exportDateTo') || {}).value || '';
         }
-        // Export the whole deduplicated database, honoring the source filter.
-        const params = new URLSearchParams();
+        if (from) p.set('dateFrom', from);
+        if (to) p.set('dateTo', to);
+        if ((document.getElementById('exportOnlyEmail') || {}).checked) p.set('hasEmail', 'true');
+        // Carry the active source filter from the table, if any.
         const src = (this._filterState && this._filterState.searchId) || '';
-        if (src) params.set('source', src);
-        if (this._onlyEmail) params.set('hasEmail', 'true');
-        if (this._filterState && this._filterState.minScore > 0) params.set('minScore', this._filterState.minScore);
-        if (this._filterState && this._filterState.dateFrom) params.set('dateFrom', this._filterState.dateFrom);
-        if (this._filterState && this._filterState.dateTo) params.set('dateTo', this._filterState.dateTo);
-        const qs = params.toString();
+        if (src) p.set('source', src);
+        return p;
+    }
+
+    async updateExportCount() {
+        const el = document.getElementById('exportCount');
+        if (!el) return;
+        const preset = (document.getElementById('exportDatePreset') || {}).value;
+        if (preset === 'custom') {
+            const f = (document.getElementById('exportDateFrom') || {}).value;
+            const t = (document.getElementById('exportDateTo') || {}).value;
+            if (!f || !t) { el.textContent = 'Pick a “from” and “to” date.'; return; }
+        }
+        el.textContent = 'Counting…';
+        try {
+            const p = this._exportParams();
+            const s = await api.request('/db/stats?' + p.toString());
+            const emailNote = p.get('hasEmail') ? '' : ` · ${api.formatNumber(s.withEmail)} with email`;
+            el.textContent = `${api.formatNumber(s.totalLeads)} leads will download${emailNote}.`;
+        } catch (e) { el.textContent = ''; }
+    }
+
+    doExport() {
+        const preset = (document.getElementById('exportDatePreset') || {}).value;
+        if (preset === 'custom') {
+            const f = (document.getElementById('exportDateFrom') || {}).value;
+            const t = (document.getElementById('exportDateTo') || {}).value;
+            if (!f || !t) { showNotification('Pick dates', 'Choose a “from” and “to” date, or use a preset.', 'warning'); return; }
+        }
+        const p = this._exportParams();
+        const qs = p.toString();
         window.open(`/api/db/leads/export/csv${qs ? '?' + qs : ''}`, '_blank');
-        showNotification('Export', 'Downloading leads CSV…', 'success');
+        hideModal();
+        showNotification('Export', 'Downloading your CSV…', 'success');
     }
 
     // ─── Registry stats strip ───────────────────────────────
